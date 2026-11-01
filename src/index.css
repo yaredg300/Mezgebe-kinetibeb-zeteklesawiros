@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --church-blue: #0C4A9E;
+    --church-blue-dark: #072958;
+    --church-blue-light: #1E6BD6;
+    --church-gold: #F5B800;
+    --church-gold-dark: #B88500;
+    --church-gold-light: #FFD54F;
+    --manuscript-red: #8B0000;
+    --antique-gold: #B88500;
+    --antique-gold-dark: #966C00;
+    --candlelight: #FFF8E7;
+  }
+
+  body {
+    font-family: 'Noto Sans Ethiopic', system-ui, -apple-system, sans-serif;
+  }
+
+  h1, h2, h3, .font-serif-ethiopic {
+    font-family: 'Noto Serif Ethiopic', 'Noto Sans Ethiopic', serif;
+  }
+}
+
+/* Custom scrollbars for manuscript reading */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(184, 133, 0, 0.35);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(184, 133, 0, 0.6);
+}
