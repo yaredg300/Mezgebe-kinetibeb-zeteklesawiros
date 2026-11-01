@@ -1,0 +1,6 @@
+{
+  "name": "መዝገበ ኪነጥበብ",
+  "description": "የተክለ ሣዊሮስ ሰንበት ትምህርት ቤት የኪነጥበብ እና ባህላዊ መዝገብ - Art & Cultural Archive",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
