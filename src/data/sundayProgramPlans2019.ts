@@ -5,8 +5,11 @@ import {
   SundaySchoolDivision,
 } from '../types';
 
+import { YOUTH_PLAN_PDF_PACKAGE } from './youthCombinedPlanData';
+
 // Official PDF packages available in the workspace
 export const SUNDAY_PLAN_PDF_PACKAGES: SundayPlanPdfPackage[] = [
+  YOUTH_PLAN_PDF_PACKAGE,
   {
     id: 'pdf_children_2019',
     division: 'children',

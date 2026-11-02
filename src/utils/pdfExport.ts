@@ -114,8 +114,17 @@ export const downloadWorkPdf = (work: WorkItem): string => {
 };
 
 export const printWorkArchivalDocument = (work: WorkItem) => {
-  const printWindow = window.open('', '_blank');
-  if (!printWindow) return;
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = '0';
+  document.body.appendChild(iframe);
+
+  const doc = iframe.contentWindow?.document;
+  if (!doc) return;
 
   const html = `
     <!DOCTYPE html>
@@ -208,6 +217,23 @@ export const printWorkArchivalDocument = (work: WorkItem) => {
     </html>
   `;
 
-  printWindow.document.write(html);
-  printWindow.document.close();
+  doc.open();
+  doc.write(html);
+  doc.close();
+
+  setTimeout(() => {
+    try {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+    } catch {
+      // safe fallback
+    }
+    setTimeout(() => {
+      try {
+        document.body.removeChild(iframe);
+      } catch {
+        // ignore
+      }
+    }, 2000);
+  }, 300);
 };

@@ -28,7 +28,16 @@ import {
   CHILDREN_DAILY_PLANS_2019,
   MAEKELAWIYAN_DAILY_PLANS_2019,
 } from '../data/sundayProgramPlans2019';
-import { db, auth, storage, googleProvider } from '../firebase/config';
+import {
+  YOUTH_ANNUAL_PLAN_2019,
+  YOUTH_DAILY_PLANS_2019,
+} from '../data/youthCombinedPlanData';
+import {
+  ADDITIONAL_DEPARTMENT_WORKS,
+  ADDITIONAL_DEPARTMENT_MEMBERS,
+  ADDITIONAL_DEPARTMENT_EVENTS,
+} from '../data/departmentData';
+import { db, auth, storage, googleProvider, getCachedGoogleToken, setCachedGoogleToken } from '../firebase/config';
 import {
   collection,
   doc,
@@ -49,6 +58,7 @@ import {
   sendPasswordResetEmail,
   updateProfile,
   User as FirebaseUser,
+  GoogleAuthProvider,
 } from 'firebase/auth';
 import { handleFirestoreError, OperationType } from '../firebase/errors';
 
@@ -303,6 +313,7 @@ export const INITIAL_MEMBERS: ChurchMember[] = [
     assignedWorksCount: 9,
     bio: 'ትምህርታዊ ጽሁፎችንና ታሪኮችን ለአድማጭ የምታቀርብ።',
   },
+  ...ADDITIONAL_DEPARTMENT_MEMBERS,
 ];
 
 export const INITIAL_WORKS: WorkItem[] = [
@@ -663,6 +674,7 @@ export const INITIAL_WORKS: WorkItem[] = [
     version: 1,
     tags: ['ማዕከላውያን', 'ስክሪፕት', 'ዳንኤል'],
   },
+  ...ADDITIONAL_DEPARTMENT_WORKS,
 ];
 
 export const INITIAL_EVENTS: CulturalEvent[] = [
@@ -828,6 +840,7 @@ export const INITIAL_EVENTS: CulturalEvent[] = [
       },
     ],
   },
+  ...ADDITIONAL_DEPARTMENT_EVENTS,
 ];
 
 export const INITIAL_AUDIO_TRACKS: LiturgicalAudioTrack[] = [
@@ -876,6 +889,7 @@ interface ArchiveContextType {
   pdfPackages: SundayPlanPdfPackage[];
   childrenAnnualPlan: SundayProgramPlanEntry[];
   maekelawiyanAnnualPlan: SundayProgramPlanEntry[];
+  youthAnnualPlan: SundayProgramPlanEntry[];
   dailyPlanSheets: SundayDailyPlanSheet[];
   updateDailyPlanSheet: (sheetId: string, updates: Partial<SundayDailyPlanSheet>) => void;
   selectedDivision: SundaySchoolDivision;
@@ -888,6 +902,10 @@ interface ArchiveContextType {
   currentAudioTrack: LiturgicalAudioTrack | null;
   isAudioPlaying: boolean;
   audioProgress: number;
+  googleAccessToken: string | null;
+  isGoogleDriveConnected: boolean;
+  connectGoogleDrive: () => Promise<string | null>;
+  disconnectGoogleDrive: () => void;
   signInWithGoogle: () => Promise<FirebaseUser | null>;
   registerWithEmail: (email: string, password: string, fullName: string, role?: UserRole) => Promise<void>;
   loginWithEmail: (email: string, password: string) => Promise<void>;
@@ -905,6 +923,7 @@ interface ArchiveContextType {
     tags: string[];
     writerName?: string;
     division?: SundaySchoolDivision;
+    departmentId?: SundaySchoolDepartment;
     hasPdfAttachment?: boolean;
     pdfFileName?: string | null;
     pdfFileSize?: string | null;
@@ -939,6 +958,7 @@ interface ArchiveContextType {
     phone: string;
     spiritualTitle: string;
     department: string;
+    departmentId?: SundaySchoolDepartment;
     bio: string;
   }) => Promise<ChurchMember>;
   deleteMember: (memberId: string) => Promise<void>;
@@ -952,6 +972,7 @@ interface ArchiveContextType {
     organizer: string;
     recurrence?: ProgramRecurrence;
     division?: SundaySchoolDivision | null;
+    departmentId?: SundaySchoolDepartment;
   }) => Promise<CulturalEvent>;
   deleteEvent: (eventId: string) => Promise<void>;
   addAssignmentToProgram: (eventId: string, assignment: ProgramAssignment) => Promise<void>;
@@ -993,6 +1014,7 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [dailyPlanSheets, setDailyPlanSheets] = useState<SundayDailyPlanSheet[]>([
     ...CHILDREN_DAILY_PLANS_2019,
     ...MAEKELAWIYAN_DAILY_PLANS_2019,
+    ...YOUTH_DAILY_PLANS_2019,
   ]);
 
   const updateDailyPlanSheet = (sheetId: string, updates: Partial<SundayDailyPlanSheet>) => {
@@ -1073,6 +1095,32 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [currentAudioTrack, setCurrentAudioTrack] = useState<LiturgicalAudioTrack | null>(null);
   const [isAudioPlaying, setIsAudioPlaying] = useState<boolean>(false);
   const [audioProgress, setAudioProgress] = useState<number>(0.28);
+  const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(() => getCachedGoogleToken());
+  const isGoogleDriveConnected = Boolean(googleAccessToken);
+
+  const connectGoogleDrive = async (): Promise<string | null> => {
+    try {
+      const result = await signInWithPopup(auth, googleProvider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        setCachedGoogleToken(credential.accessToken);
+        setGoogleAccessToken(credential.accessToken);
+        return credential.accessToken;
+      }
+      return null;
+    } catch (err: any) {
+      if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
+        return null;
+      }
+      console.warn('Google Drive auth notice:', err);
+      throw err;
+    }
+  };
+
+  const disconnectGoogleDrive = () => {
+    setCachedGoogleToken(null);
+    setGoogleAccessToken(null);
+  };
 
   // Sync theme mode to document element (STRICTLY DEFAULT TO LIGHT)
   useEffect(() => {
@@ -1296,6 +1344,11 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const signInWithGoogle = async (): Promise<FirebaseUser | null> => {
     try {
       const result = await signInWithPopup(auth, googleProvider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        setCachedGoogleToken(credential.accessToken);
+        setGoogleAccessToken(credential.accessToken);
+      }
       return result.user;
     } catch (error: any) {
       if (
@@ -1382,6 +1435,7 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const logout = async () => {
     try {
+      disconnectGoogleDrive();
       await signOut(auth);
       setCurrentUser({
         id: 'u_default',
@@ -1445,6 +1499,7 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     tags: string[];
     writerName?: string;
     division?: SundaySchoolDivision;
+    departmentId?: SundaySchoolDepartment;
     hasPdfAttachment?: boolean;
     pdfFileName?: string | null;
     pdfFileSize?: string | null;
@@ -1455,6 +1510,8 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const category = categories.find((c) => c.id === data.categoryId);
     const newWorkId = `w_${Date.now()}`;
     const authorId = auth.currentUser?.uid || currentUser.id;
+    const targetDeptId = data.departmentId || activeDepartment || 'kinetibeb';
+    const deptInfo = departmentsList.find((d) => d.id === targetDeptId);
 
     let uploadedPdfUrl: string | null = data.pdfUrl || null;
 
@@ -1476,6 +1533,8 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       writerName: data.writerName?.trim() || currentUser.fullName,
       categoryId: data.categoryId,
       categoryName: category?.nameAmharic || 'ስነ ጽሁፍ',
+      departmentId: targetDeptId,
+      departmentTitle: deptInfo?.titleAmharic || 'የኪነጥበብ ክፍል',
       dateAmharic: 'የካቲት ፳፻፲፮ ዓ.ም',
       status: 'UNDER_REVIEW',
       excerpt: data.excerpt.trim() || data.content.slice(0, 90) + '...',
@@ -1624,15 +1683,20 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     phone: string;
     spiritualTitle: string;
     department: string;
+    departmentId?: SundaySchoolDepartment;
     bio: string;
   }): Promise<ChurchMember> => {
+    const targetDeptId = data.departmentId || activeDepartment || 'kinetibeb';
+    const deptInfo = departmentsList.find((d) => d.id === targetDeptId);
+
     const newMember: ChurchMember = {
       id: `m_${Date.now()}`,
       fullName: data.fullName,
       duty: data.duty,
       phone: data.phone,
       spiritualTitle: data.spiritualTitle || 'አባል',
-      department: data.department || 'የኪነጥበብ ክፍል',
+      department: data.department || deptInfo?.titleAmharic || 'የኪነጥበብ ክፍል',
+      departmentId: targetDeptId,
       joinedYear: '፳፻፲፮ ዓ.ም',
       assignedWorksCount: 0,
       bio: data.bio,
@@ -1668,7 +1732,11 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     organizer: string;
     recurrence?: ProgramRecurrence;
     division?: SundaySchoolDivision | null;
+    departmentId?: SundaySchoolDepartment;
   }): Promise<CulturalEvent> => {
+    const targetDeptId = data.departmentId || activeDepartment || 'kinetibeb';
+    const deptInfo = departmentsList.find((d) => d.id === targetDeptId);
+
     const newEvent: CulturalEvent = {
       id: `prog_${Date.now()}`,
       title: data.title,
@@ -1677,7 +1745,9 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       location: data.location,
       category: data.category,
       description: data.description,
-      organizer: data.organizer,
+      organizer: data.organizer || deptInfo?.titleAmharic || 'የኪነጥበብ ክፍል',
+      departmentId: targetDeptId,
+      departmentTitle: deptInfo?.titleAmharic || 'የኪነጥበብ ክፍል',
       recurrence: data.recurrence || 'WEEKLY',
       division: data.division || null,
       assignments: [],
@@ -1805,6 +1875,7 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
         pdfPackages: SUNDAY_PLAN_PDF_PACKAGES,
         childrenAnnualPlan: CHILDREN_ANNUAL_PLAN_2019,
         maekelawiyanAnnualPlan: MAEKELAWIYAN_ANNUAL_PLAN_2019,
+        youthAnnualPlan: YOUTH_ANNUAL_PLAN_2019,
         dailyPlanSheets,
         updateDailyPlanSheet,
         selectedDivision,
@@ -1817,6 +1888,10 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
         currentAudioTrack,
         isAudioPlaying,
         audioProgress,
+        googleAccessToken,
+        isGoogleDriveConnected,
+        connectGoogleDrive,
+        disconnectGoogleDrive,
         signInWithGoogle,
         registerWithEmail,
         loginWithEmail,

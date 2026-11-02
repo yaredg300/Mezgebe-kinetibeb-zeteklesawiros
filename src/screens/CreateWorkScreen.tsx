@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Send, FileUp, Sparkles, CheckCircle2, FileText, X, AlertCircle, Loader2 } from 'lucide-react';
 import { useArchive } from '../context/ArchiveContext';
-import { SundaySchoolDivision, DIVISIONS } from '../types';
+import { SundaySchoolDivision, DIVISIONS, SundaySchoolDepartment } from '../types';
 import { AppHeader } from '../components/AppHeader';
 import { ManuscriptBox, HaragDivider } from '../components/Ornaments';
 
@@ -52,6 +52,8 @@ export const CreateWorkScreen: React.FC<{
     submitNewWork,
     updateWork,
     works,
+    departmentsList,
+    activeDepartment,
   } = useArchive();
 
   const existingWork = editWorkId ? works.find((w) => w.id === editWorkId) : null;
@@ -61,6 +63,9 @@ export const CreateWorkScreen: React.FC<{
   const [categoryId, setCategoryId] = useState(existingWork?.categoryId || 'poetry');
   const [division, setDivision] = useState<SundaySchoolDivision>(
     existingWork?.division || selectedDivision
+  );
+  const [departmentId, setDepartmentId] = useState<SundaySchoolDepartment>(
+    existingWork?.departmentId || activeDepartment || 'kinetibeb'
   );
   const [content, setContent] = useState(existingWork?.content || '');
   const [excerpt, setExcerpt] = useState(existingWork?.excerpt || '');
@@ -140,6 +145,7 @@ export const CreateWorkScreen: React.FC<{
           tags,
           writerName,
           division,
+          departmentId,
           hasPdfAttachment: attachedPdfName !== null || attachedFile !== null,
           pdfFileName: attachedFile?.name || attachedPdfName,
           pdfFileSize: attachedFile ? `${(attachedFile.size / 1024).toFixed(0)} KB` : attachedPdfSize,
@@ -293,21 +299,40 @@ export const CreateWorkScreen: React.FC<{
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
-                የኪነጥበብ ዘርፍ ምድብ *
-              </label>
-              <select
-                value={categoryId}
-                onChange={(e) => setCategoryId(e.target.value)}
-                className="w-full px-3.5 py-2 text-xs sm:text-sm rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
-              >
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.nameAmharic} ({c.nameEnglish})
-                  </option>
-                ))}
-              </select>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
+                  የሰንበት ት/ቤት ክፍል (Department) *
+                </label>
+                <select
+                  value={departmentId}
+                  onChange={(e) => setDepartmentId(e.target.value as SundaySchoolDepartment)}
+                  className="w-full px-3.5 py-2 text-xs sm:text-sm rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
+                >
+                  {departmentsList.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.titleAmharic} ({d.badgeLabel})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
+                  የኪነጥበብ ዘርፍ ምድብ *
+                </label>
+                <select
+                  value={categoryId}
+                  onChange={(e) => setCategoryId(e.target.value)}
+                  className="w-full px-3.5 py-2 text-xs sm:text-sm rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
+                >
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nameAmharic} ({c.nameEnglish})
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div>

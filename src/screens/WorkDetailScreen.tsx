@@ -59,7 +59,8 @@ export const WorkDetailScreen: React.FC<{
         setDownloadSuccessMessage(null);
       }, 5000);
     } catch (e: any) {
-      alert(`ፒዲኤፍ ማውረድ አልተቻለም፦ ${e?.message || e}`);
+      setDownloadSuccessMessage(`ፒዲኤፍ ማውረድ አልተቻለም፦ ${e?.message || e}`);
+      setTimeout(() => setDownloadSuccessMessage(null), 4000);
     }
   };
 

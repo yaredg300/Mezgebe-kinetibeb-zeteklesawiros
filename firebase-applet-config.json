@@ -1,12 +1,11 @@
 {
-  "projectId": "symmetric-discovery-353bd",
-  "appId": "1:157044246290:web:e656a79ef39bd43f83d5cb",
-  "apiKey": "AIzaSyBEw0Jqr89vhnOLgJLGbnQh3iDDdCju4qs",
-  "authDomain": "symmetric-discovery-353bd.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-mezgebekinetibeb-bfdd662c-5178-41ac-a430-9bf631ff3ca2",
-  "storageBucket": "symmetric-discovery-353bd.firebasestorage.app",
-  "messagingSenderId": "157044246290",
+  "projectId": "ferrous-sweep-9pz3c",
+  "appId": "1:973807582845:web:5317e9ec4f1eaa295c3b14",
+  "apiKey": "AIzaSyCs9SaqgrVEThwjQYiFxc4WK8uv5_1PeSs",
+  "authDomain": "ferrous-sweep-9pz3c.firebaseapp.com",
+  "storageBucket": "ferrous-sweep-9pz3c.firebasestorage.app",
+  "messagingSenderId": "973807582845",
   "measurementId": "",
-  "oAuthClientId": "157044246290-r2a9pcgurdhtn3hsqrpeoeo6hbm4qh2u.apps.googleusercontent.com",
+  "oAuthClientId": "973807582845-032k2d4qce8gkj846sf5vog0nhv662mu.apps.googleusercontent.com",
   "recaptchaSiteKey": ""
 }

@@ -7,12 +7,22 @@ import firebaseConfig from '../../firebase-applet-config.json';
 // Initialize Firebase App
 export const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore with custom databaseId
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// Initialize Firestore
+export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
 
-// Initialize Auth
+// Initialize Auth with Google Workspace Drive scopes
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
+googleProvider.addScope('https://www.googleapis.com/auth/drive.readonly');
+googleProvider.addScope('https://www.googleapis.com/auth/drive');
+
+// In-memory access token cache (CRITICAL: Do NOT store in localStorage)
+let cachedAccessToken: string | null = null;
+export const getCachedGoogleToken = (): string | null => cachedAccessToken;
+export const setCachedGoogleToken = (token: string | null) => {
+  cachedAccessToken = token;
+};
 
 // Initialize Cloud Storage for uploaded works/manuscripts
 export const storage = getStorage(app);

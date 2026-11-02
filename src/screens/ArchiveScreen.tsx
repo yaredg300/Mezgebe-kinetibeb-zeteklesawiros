@@ -1,17 +1,69 @@
 import React, { useState } from 'react';
-import { Search, Sparkles, FileText } from 'lucide-react';
+import {
+  Search,
+  Sparkles,
+  FileText,
+  HardDrive,
+  Layers,
+  BookOpen,
+  Calendar,
+  Users,
+  Plus,
+} from 'lucide-react';
 import { useArchive } from '../context/ArchiveContext';
 import { AppHeader } from '../components/AppHeader';
 import { ManuscriptBox, HaragDivider } from '../components/Ornaments';
-import { CategoryCard } from '../components/Cards';
+import { CategoryCard, WorkCard } from '../components/Cards';
+import { GoogleDriveModal } from '../components/GoogleDriveModal';
+import { QuickWorkPreviewModal } from '../components/LiturgicalAudioComponents';
+import { WorkItem, SundaySchoolDepartment } from '../types';
 
 export const ArchiveScreen: React.FC<{
   onCategoryClick: (categoryId: string) => void;
   onSearchClick: () => void;
   onCreateWorkClick: () => void;
-}> = ({ onCategoryClick, onSearchClick, onCreateWorkClick }) => {
-  const { categories, works } = useArchive();
+  onWorkClick?: (workId: string) => void;
+}> = ({ onCategoryClick, onSearchClick, onCreateWorkClick, onWorkClick }) => {
+  const {
+    categories,
+    works,
+    activeDepartment,
+    setActiveDepartment,
+    departmentsList,
+    toggleBookmark,
+    playWorkAudio,
+    isGoogleDriveConnected,
+  } = useArchive();
+
+  const [selectedDeptFilter, setSelectedDeptFilter] = useState<SundaySchoolDepartment | 'ALL'>(
+    activeDepartment || 'ALL'
+  );
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [viewMode, setViewMode] = useState<'works' | 'categories'>('works');
+  const [previewWork, setPreviewWork] = useState<WorkItem | null>(null);
+  const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
+
+  // Active department metadata
+  const currentDept = departmentsList.find((d) => d.id === selectedDeptFilter);
+
+  // Filter works by department & search
+  const filteredWorks = works.filter((w) => {
+    const matchesDept =
+      selectedDeptFilter === 'ALL' ||
+      (w.departmentId ? w.departmentId === selectedDeptFilter : selectedDeptFilter === 'kinetibeb');
+
+    if (!matchesDept) return false;
+
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      w.title.toLowerCase().includes(q) ||
+      w.writerName.toLowerCase().includes(q) ||
+      w.categoryName.toLowerCase().includes(q) ||
+      w.excerpt.toLowerCase().includes(q) ||
+      w.tags.some((t) => t.toLowerCase().includes(q))
+    );
+  });
 
   const filteredCategories = categories.filter((cat) => {
     if (!searchQuery.trim()) return true;
@@ -23,80 +75,258 @@ export const ArchiveScreen: React.FC<{
     );
   });
 
+  const handleSelectDepartment = (deptId: SundaySchoolDepartment | 'ALL') => {
+    setSelectedDeptFilter(deptId);
+    if (deptId !== 'ALL') {
+      setActiveDepartment(deptId);
+    }
+  };
+
   return (
     <div className="min-h-screen pb-24 md:pb-12 bg-[#F9FAFD] dark:bg-[#0B1320]">
       <AppHeader
-        title="መዝገብ"
-        subtitle="የተክለ ሣዊሮስ ኪነጥበብ ቅርሶች እና ሰነዶች"
+        title="የሰንበት ት/ቤት መዝገብ"
+        subtitle={
+          currentDept
+            ? `${currentDept.titleAmharic} • ቋሚ ቅርሶችና ሰነዶች`
+            : 'የተክለ ሣዊሮስ ሁሉም ክፍላት ቅርሶችና ሰነዶች'
+        }
         onSearchClick={onSearchClick}
       />
 
       <div className="max-w-5xl mx-auto px-4 py-4 space-y-4">
-        {/* Search input in archive */}
-        <div className="relative">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="የመዝገብ ምድቦችን ፈልግ..."
-            className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm rounded-2xl bg-white dark:bg-[#111D30] border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500] shadow-xs"
-          />
-        </div>
-
-        {/* Archival Philosophy Banner */}
-        <ManuscriptBox className="p-4 sm:p-5">
-          <div className="flex items-center gap-2 mb-1 text-[#0C4A9E] dark:text-[#7FAFFF]">
-            <Sparkles className="w-4 h-4 text-[#B88500]" />
-            <h3 className="text-sm font-bold font-serif-ethiopic">
-              የኪነጥበብ መዝገብ ቤት ፍልስፍና
-            </h3>
-          </div>
-
-          <p className="text-xs font-bold text-[#B88500] dark:text-[#FFD54F] mt-1">
-            ፍጠር → ጠብቅ → ገምግም → አጽድቅ → አትም → አስታውስ
-          </p>
-
-          <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed mt-2 font-serif-ethiopic">
-            እያንዳንዱ የፈጠራ ስራ የሰንበት ትምህርት ቤቱን መንፈሳዊ ታሪክ የሚያበለጽግ የትውልድ አሻራ ነው። በመዝገቡ ውስጥ የተካተቱ ሥራዎች በሙሉ በቤተክርስቲያን ኃላፊዎች ቁጥጥርና ፈቃድ የተመዘገቡ ናቸው።
-          </p>
-        </ManuscriptBox>
-
-        {/* PDF & Document Documentation Banner */}
-        <div className="p-4 rounded-2xl bg-blue-50/70 dark:bg-blue-950/30 border border-[#0C4A9E]/20 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#0C4A9E] text-white flex items-center justify-center shrink-0">
-              <FileText className="w-5 h-5" />
-            </div>
-            <div>
-              <h4 className="text-xs sm:text-sm font-bold text-[#0C4A9E] dark:text-[#7FAFFF]">
-                የሰነዶችና የ PDF ቋሚ ቅጂ
-              </h4>
-              <p className="text-[11px] text-slate-600 dark:text-slate-400">
-                እያንዳንዱ ሥራ በቤተክርስቲያን ጥበባዊ ማህተም የተረጋገጠ PDF ቅጂ አለው።
-              </p>
-            </div>
-          </div>
-
-          <button
-            onClick={onCreateWorkClick}
-            className="px-4 py-2 rounded-xl bg-[#0C4A9E] text-white text-xs font-bold hover:bg-[#072958] shrink-0 shadow-sm"
-          >
-            አዲስ ሰነድ መዝግብ +
-          </button>
-        </div>
-
-        {/* Categories Grid */}
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-bold font-serif-ethiopic text-slate-900 dark:text-slate-100">
-              የኪነጥበብ ምድቦች ({filteredCategories.length})
-            </h3>
-            <span className="text-xs text-slate-500">
-              ጠቅላላ {works.length} የተመዘገቡ ሥራዎች
+        {/* Department Switcher Ribbon */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-xs px-1">
+            <span className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+              <Layers className="w-4 h-4 text-[#B88500]" />
+              የክፍላት መዝገብ ይምረጡ፦
+            </span>
+            <span className="text-[11px] text-slate-500">
+              {selectedDeptFilter === 'ALL' ? 'ሁሉም ክፍሎች' : currentDept?.titleAmharic}
             </span>
           </div>
 
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 scrollbar-none">
+            <button
+              type="button"
+              onClick={() => handleSelectDepartment('ALL')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                selectedDeptFilter === 'ALL'
+                  ? 'bg-[#0C4A9E] text-white shadow-sm'
+                  : 'bg-white dark:bg-[#111D30] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-[#0C4A9E]'
+              }`}
+            >
+              ሁሉም ክፍላት ({works.length})
+            </button>
+
+            {departmentsList.map((dept) => {
+              const isSelected = selectedDeptFilter === dept.id;
+              const count = works.filter((w) =>
+                w.departmentId ? w.departmentId === dept.id : dept.id === 'kinetibeb'
+              ).length;
+
+              return (
+                <button
+                  key={dept.id}
+                  type="button"
+                  onClick={() => handleSelectDepartment(dept.id)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                    isSelected
+                      ? 'text-white shadow-sm'
+                      : 'bg-white dark:bg-[#111D30] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-[#B88500]'
+                  }`}
+                  style={
+                    isSelected
+                      ? { backgroundColor: dept.accentColor || '#0C4A9E' }
+                      : {}
+                  }
+                >
+                  <span
+                    className="w-2 h-2 rounded-full"
+                    style={{ backgroundColor: dept.accentColor || '#B88500' }}
+                  />
+                  <span>{dept.shortTitleAmharic || dept.titleAmharic}</span>
+                  <span className="text-[10px] opacity-80">({count})</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Selected Department Showcase Card */}
+        {currentDept && selectedDeptFilter !== 'ALL' && (
+          <div
+            className="p-4 sm:p-5 rounded-2xl text-white shadow-md relative overflow-hidden"
+            style={{
+              background: `linear-gradient(135deg, ${currentDept.accentColor || '#0C4A9E'}, #072958)`,
+            }}
+          >
+            <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div>
+                <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-white/20 text-[#FFD54F] border border-white/20 mb-1">
+                  {currentDept.badgeLabel || 'አገልግሎት ክፍል'}
+                </span>
+                <h2 className="text-lg sm:text-xl font-bold font-serif-ethiopic text-white">
+                  {currentDept.titleAmharic} መዝገብ
+                </h2>
+                <p className="text-xs text-white/90 leading-relaxed max-w-xl mt-1">
+                  {currentDept.descriptionAmharic}
+                </p>
+                <div className="flex flex-wrap items-center gap-3 mt-2 text-[11px] text-[#FFD54F]">
+                  <span>አስተባባሪ፦ {currentDept.coordinatorName || 'የክፍሉ ኃላፊ'}</span>
+                  <span>•</span>
+                  <span>የተመዘገቡ ሰነዶች፦ {filteredWorks.length}</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsDriveModalOpen(true)}
+                  className="px-3 py-2 rounded-xl bg-white/15 hover:bg-white/25 border border-white/30 text-xs font-bold text-white flex items-center gap-1.5 transition-colors"
+                >
+                  <HardDrive className="w-4 h-4 text-[#FFD54F]" />
+                  <span>Google Drive</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={onCreateWorkClick}
+                  className="px-3.5 py-2 rounded-xl bg-[#F5B800] hover:bg-[#FFD54F] text-slate-900 text-xs font-bold shadow-md flex items-center gap-1 transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>ሰነድ ጨምር</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Global Toolbar: Search + Google Drive & Add */}
+        <div className="flex flex-col sm:flex-row items-center gap-2.5">
+          <div className="relative flex-1 w-full">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={`${
+                selectedDeptFilter === 'ALL'
+                  ? 'በሁሉም ክፍላት ሰነዶች ውስጥ ፈልግ'
+                  : `በ«${currentDept?.shortTitleAmharic || currentDept?.titleAmharic}» መዝገብ ፈልግ`
+              }...`}
+              className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm rounded-2xl bg-white dark:bg-[#111D30] border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500] shadow-xs"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 justify-end">
+            <button
+              type="button"
+              onClick={() => setIsDriveModalOpen(true)}
+              className={`px-3 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-1.5 border shadow-xs transition-colors ${
+                isGoogleDriveConnected
+                  ? 'bg-blue-50 dark:bg-blue-950/40 text-[#0C4A9E] dark:text-[#7FAFFF] border-blue-200 dark:border-blue-800'
+                  : 'bg-white dark:bg-[#111D30] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-[#0C4A9E]'
+              }`}
+              title="Google Drive ሰነዶች ማመሳከሪያ"
+            >
+              <HardDrive className="w-4 h-4 text-[#0C4A9E] dark:text-[#7FAFFF]" />
+              <span className="hidden sm:inline">Google Drive</span>
+              {isGoogleDriveConnected && <span className="w-2 h-2 rounded-full bg-emerald-500" />}
+            </button>
+
+            <button
+              type="button"
+              onClick={onCreateWorkClick}
+              className="px-4 py-2.5 rounded-2xl bg-[#0C4A9E] hover:bg-[#072958] text-white text-xs font-bold shadow-sm flex items-center gap-1.5"
+            >
+              <Plus className="w-4 h-4" />
+              <span>አዲስ መዝግብ</span>
+            </button>
+          </div>
+        </div>
+
+        {/* View Mode Toggle (ሰነዶችና ሥራዎች vs የመዝገብ ዘርፎች) */}
+        <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setViewMode('works')}
+              className={`pb-1 text-xs sm:text-sm font-bold transition-all relative ${
+                viewMode === 'works'
+                  ? 'text-[#0C4A9E] dark:text-[#7FAFFF] border-b-2 border-[#B88500]'
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              የተመዘገቡ ሥራዎችና ሰነዶች ({filteredWorks.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('categories')}
+              className={`pb-1 text-xs sm:text-sm font-bold transition-all relative ${
+                viewMode === 'categories'
+                  ? 'text-[#0C4A9E] dark:text-[#7FAFFF] border-b-2 border-[#B88500]'
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              የኪነጥበብ ምድቦች ({filteredCategories.length})
+            </button>
+          </div>
+
+          <span className="text-[11px] text-slate-400">
+            {selectedDeptFilter === 'ALL'
+              ? 'ሁሉም ክፍሎች'
+              : currentDept?.titleAmharic}
+          </span>
+        </div>
+
+        {/* View 1: Works Grid */}
+        {viewMode === 'works' && (
+          <div>
+            {filteredWorks.length === 0 ? (
+              <ManuscriptBox className="p-8 text-center text-slate-500 space-y-2">
+                <FileText className="w-10 h-10 mx-auto text-[#B88500]/50" />
+                <p className="text-xs font-serif-ethiopic">
+                  በዚህ ክፍል እስካሁን የተመዘገበ ሰነድ አልተገኘም።
+                </p>
+                <div className="flex items-center justify-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={onCreateWorkClick}
+                    className="px-3.5 py-1.5 rounded-xl bg-[#0C4A9E] text-white text-xs font-bold"
+                  >
+                    ለዚህ ክፍል አዲስ ሰነድ መዝግብ +
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsDriveModalOpen(true)}
+                    className="px-3.5 py-1.5 rounded-xl border border-blue-300 text-blue-700 dark:text-blue-300 text-xs font-bold"
+                  >
+                    ከ Google Drive አስመጣ
+                  </button>
+                </div>
+              </ManuscriptBox>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                {filteredWorks.map((work) => (
+                  <WorkCard
+                    key={work.id}
+                    work={work}
+                    onClick={() => {
+                      if (onWorkClick) onWorkClick(work.id);
+                    }}
+                    onBookmarkClick={() => toggleBookmark(work.id)}
+                    onQuickPreviewClick={() => setPreviewWork(work)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* View 2: Categories Grid */}
+        {viewMode === 'categories' && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             {filteredCategories.map((category) => (
               <CategoryCard
@@ -106,8 +336,34 @@ export const ArchiveScreen: React.FC<{
               />
             ))}
           </div>
-        </div>
+        )}
       </div>
+
+      {/* Google Drive Synchronization Modal */}
+      <GoogleDriveModal
+        isOpen={isDriveModalOpen}
+        onClose={() => setIsDriveModalOpen(false)}
+        onImportComplete={(newWork) => {
+          if (onWorkClick) onWorkClick(newWork.id);
+        }}
+      />
+
+      {/* Quick Work Preview Sheet */}
+      <QuickWorkPreviewModal
+        isOpen={previewWork !== null}
+        work={previewWork}
+        onDismiss={() => setPreviewWork(null)}
+        onOpenFullDetail={(workId) => {
+          setPreviewWork(null);
+          if (onWorkClick) onWorkClick(workId);
+        }}
+        onPlayAudio={(work) => {
+          playWorkAudio(work);
+        }}
+        onToggleBookmark={(workId) => {
+          toggleBookmark(workId);
+        }}
+      />
     </div>
   );
 };

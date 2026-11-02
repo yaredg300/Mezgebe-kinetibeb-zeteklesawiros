@@ -29,6 +29,7 @@ export const ReviewerQueueScreen: React.FC<{
   const [revisionWork, setRevisionWork] = useState<WorkItem | null>(null);
   const [feedbackText, setFeedbackText] = useState<string>('');
   const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [workToDelete, setWorkToDelete] = useState<WorkItem | null>(null);
 
   const pendingWorks = works.filter(
     (w) => w.status === 'UNDER_REVIEW' || w.status === 'REVISION_REQUESTED'
@@ -71,11 +72,15 @@ export const ReviewerQueueScreen: React.FC<{
   };
 
   const handleDelete = (work: WorkItem) => {
-    if (confirm(`እርግጠኛ ነዎት «${work.title}» ይሰረዝ?`)) {
-      deleteWork(work.id);
-      setActionNotice(`«${work.title}» ተሰርዟል!`);
-      setTimeout(() => setActionNotice(null), 3500);
-    }
+    setWorkToDelete(work);
+  };
+
+  const confirmDeleteWork = () => {
+    if (!workToDelete) return;
+    deleteWork(workToDelete.id);
+    setActionNotice(`«${workToDelete.title}» ተሰርዟል!`);
+    setWorkToDelete(null);
+    setTimeout(() => setActionNotice(null), 3500);
   };
 
   return (
@@ -328,6 +333,36 @@ export const ReviewerQueueScreen: React.FC<{
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {workToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="relative w-full max-w-sm rounded-2xl bg-white dark:bg-[#111D30] border-2 border-rose-500 p-6 shadow-2xl">
+            <h3 className="text-base font-bold font-serif-ethiopic text-rose-600 mb-2">
+              ሥራውን መሰረዝ ይፈልጋሉ?
+            </h3>
+            <p className="text-xs text-slate-600 dark:text-slate-300 mb-4">
+              እርግጠኛ ነዎት «<strong>{workToDelete.title}</strong>» ይሰረዝ? ይህ እርምጃ ሊቀለበስ አይችልም።
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={confirmDeleteWork}
+                className="flex-1 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md cursor-pointer"
+              >
+                አዎ፣ ሰርዝ
+              </button>
+              <button
+                type="button"
+                onClick={() => setWorkToDelete(null)}
+                className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer"
+              >
+                ተመለስ
+              </button>
+            </div>
           </div>
         </div>
       )}

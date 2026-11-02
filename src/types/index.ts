@@ -125,7 +125,7 @@ export const DEPARTMENTS: Record<string, DepartmentInfo> = {
     shortTitleAmharic: 'እሁድ መርሃ ግብር',
     iconName: 'CalendarDays',
     badgeLabel: 'እሁድ መርሃ ግብር',
-    descriptionAmharic: 'የሕፃናትና የማዕከላውያን የ2019 ዓ.ም. የእሁድ አገልግሎት የሰዓት ሰሌዳ፣ የወር ዕቅዶችና የዕለት አገልጋዮች ምደባ',
+    descriptionAmharic: 'የወጣት፣ የማዕከላውያንና የሕፃናት የ2019 ዓ.ም. የተቀናጀ የእሁድ አገልግሎት የሰዓት ሰሌዳ፣ 18ቱ ዝርዝር ዕቅዶችና 10ሩ የአዘጋጆች ምድቦች',
     accentColor: '#0C4A9E',
     status: 'ACTIVE',
     coordinatorName: 'የመርሐ ግብር አስተባባሪ ኮሚቴ',
@@ -281,6 +281,8 @@ export interface WorkItem {
   content: string;
   readTime: string;
   division: SundaySchoolDivision;
+  departmentId?: SundaySchoolDepartment;
+  departmentTitle?: string;
   isBookmarked: boolean;
   isFeatured: boolean;
   approvedBy?: string | null;
@@ -327,6 +329,7 @@ export interface ChurchMember {
   phone: string;
   spiritualTitle: string;
   department: string;
+  departmentId?: SundaySchoolDepartment;
   joinedYear: string;
   assignedWorksCount: number;
   bio: string;
@@ -358,6 +361,8 @@ export interface CulturalEvent {
   description: string;
   organizer: string;
   division?: SundaySchoolDivision | null;
+  departmentId?: SundaySchoolDepartment;
+  departmentTitle?: string;
   assignments: ProgramAssignment[];
 }
 
@@ -367,6 +372,7 @@ export interface UserProfile {
   email: string;
   role: UserRole;
   department: string;
+  departmentId?: SundaySchoolDepartment;
   joinedDate: string;
   myWorksCount: number;
   mySubmissionsCount: number;

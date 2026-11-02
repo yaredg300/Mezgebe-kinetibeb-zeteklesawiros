@@ -46,7 +46,11 @@ export const SundayPlanPdfViewerModal: React.FC<SundayPlanPdfViewerModalProps> =
                   {packageData.yearAmharic}
                 </span>
                 <span className="text-xs text-white/80 font-serif-ethiopic">
-                  {packageData.division === 'children' ? 'የሕፃናት ክፍል' : 'የማዕከላውያን ክፍል'}
+                  {packageData.division === 'youth'
+                    ? 'የወጣት ክፍል'
+                    : packageData.division === 'children'
+                    ? 'የሕፃናት ክፍል'
+                    : 'የማዕከላውያን ክፍል'}
                 </span>
               </div>
               <h2 className="text-base sm:text-lg font-bold font-serif-ethiopic text-white leading-snug">
