@@ -1,0 +1,324 @@
+{
+  "entities": {
+    "work": {
+      "title": "WorkItem",
+      "description": "Church Sunday School spiritual and cultural art work, poem, literature, or script",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the work",
+          "maxLength": 128
+        },
+        "title": {
+          "type": "string",
+          "description": "Title of the work in Amharic",
+          "maxLength": 300
+        },
+        "writerId": {
+          "type": "string",
+          "description": "UID of the author who submitted or wrote the work",
+          "maxLength": 128
+        },
+        "writerName": {
+          "type": "string",
+          "description": "Author full name",
+          "maxLength": 150
+        },
+        "categoryId": {
+          "type": "string",
+          "description": "Category identifier such as poetry, literature, theater, etc.",
+          "maxLength": 50
+        },
+        "categoryName": {
+          "type": "string",
+          "description": "Localized category name",
+          "maxLength": 100
+        },
+        "dateAmharic": {
+          "type": "string",
+          "description": "Ethiopic calendar date string",
+          "maxLength": 50
+        },
+        "status": {
+          "type": "string",
+          "description": "Workflow approval status",
+          "enum": ["DRAFT", "UNDER_REVIEW", "APPROVED", "REVISION_REQUESTED", "REJECTED"]
+        },
+        "excerpt": {
+          "type": "string",
+          "description": "Summary or preview snippet",
+          "maxLength": 500
+        },
+        "content": {
+          "type": "string",
+          "description": "Full manuscript text or script content",
+          "maxLength": 50000
+        },
+        "readTime": {
+          "type": "string",
+          "description": "Estimated reading duration",
+          "maxLength": 30
+        },
+        "division": {
+          "type": "string",
+          "description": "Sunday school target division",
+          "enum": ["children", "intermediates", "youth"]
+        },
+        "version": {
+          "type": "number",
+          "description": "Revision number"
+        },
+        "tags": {
+          "type": "array",
+          "description": "List of thematic tags"
+        },
+        "isFeatured": {
+          "type": "boolean",
+          "description": "Whether this work is highlighted on the home feed"
+        },
+        "approvedBy": {
+          "type": "string",
+          "description": "Reviewer name or title who approved the work",
+          "maxLength": 150
+        },
+        "approvedDate": {
+          "type": "string",
+          "description": "Ethiopic approval date",
+          "maxLength": 50
+        },
+        "reviewerFeedback": {
+          "type": "string",
+          "description": "Editorial or liturgical feedback from reviewers",
+          "maxLength": 2000
+        },
+        "hasPdfAttachment": {
+          "type": "boolean",
+          "description": "Whether a PDF file is attached"
+        },
+        "pdfFileName": {
+          "type": "string",
+          "description": "Filename of the attached document",
+          "maxLength": 255
+        },
+        "pdfFileSize": {
+          "type": "string",
+          "description": "Human-readable file size",
+          "maxLength": 50
+        },
+        "pdfUrl": {
+          "type": "string",
+          "description": "Cloud Storage public/download URL",
+          "maxLength": 1000
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp",
+          "maxLength": 50
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Last update timestamp",
+          "maxLength": 50
+        }
+      },
+      "required": ["id", "title", "writerId", "categoryId", "content", "status", "division"]
+    },
+    "member": {
+      "title": "ChurchMember",
+      "description": "Registered Sunday school kin-tibeb member with designated duty",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Member identifier",
+          "maxLength": 128
+        },
+        "fullName": {
+          "type": "string",
+          "description": "Full name of the member",
+          "maxLength": 150
+        },
+        "duty": {
+          "type": "string",
+          "description": "Role duty assignment",
+          "enum": ["WRITER", "ORGANIZER", "PRESENTER"]
+        },
+        "phone": {
+          "type": "string",
+          "description": "Contact phone number",
+          "maxLength": 30
+        },
+        "spiritualTitle": {
+          "type": "string",
+          "description": "Spiritual title or role in church",
+          "maxLength": 100
+        },
+        "department": {
+          "type": "string",
+          "description": "Department name",
+          "maxLength": 150
+        },
+        "joinedYear": {
+          "type": "string",
+          "description": "Year joined",
+          "maxLength": 30
+        },
+        "assignedWorksCount": {
+          "type": "number",
+          "description": "Total works or programs assigned"
+        },
+        "bio": {
+          "type": "string",
+          "description": "Biographical summary",
+          "maxLength": 1000
+        }
+      },
+      "required": ["id", "fullName", "duty", "department"]
+    },
+    "event": {
+      "title": "CulturalEvent",
+      "description": "Liturgical calendar event or cultural festival program",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Event identifier",
+          "maxLength": 128
+        },
+        "title": {
+          "type": "string",
+          "description": "Program title",
+          "maxLength": 200
+        },
+        "recurrence": {
+          "type": "string",
+          "description": "Recurrence cycle",
+          "enum": ["WEEKLY", "MONTHLY", "YEARLY", "SPECIAL"]
+        },
+        "dateAmharic": {
+          "type": "string",
+          "description": "Ethiopic date description",
+          "maxLength": 100
+        },
+        "timeAmharic": {
+          "type": "string",
+          "description": "Ethiopic time description",
+          "maxLength": 100
+        },
+        "location": {
+          "type": "string",
+          "description": "Church venue or hall name",
+          "maxLength": 200
+        },
+        "category": {
+          "type": "string",
+          "description": "Program type category",
+          "maxLength": 100
+        },
+        "description": {
+          "type": "string",
+          "description": "Event detailed description",
+          "maxLength": 2000
+        },
+        "organizer": {
+          "type": "string",
+          "description": "Organizing body",
+          "maxLength": 150
+        },
+        "division": {
+          "type": "string",
+          "description": "Target Sunday school division",
+          "maxLength": 50
+        },
+        "assignments": {
+          "type": "array",
+          "description": "List of program duty assignments"
+        }
+      },
+      "required": ["id", "title", "recurrence", "location", "organizer"]
+    },
+    "userProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated user profile and preferences",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "User UID matching auth.uid",
+          "maxLength": 128
+        },
+        "fullName": {
+          "type": "string",
+          "description": "Full name",
+          "maxLength": 150
+        },
+        "email": {
+          "type": "string",
+          "description": "User email address",
+          "maxLength": 150
+        },
+        "role": {
+          "type": "string",
+          "description": "Assigned role",
+          "enum": ["GUEST", "MEMBER", "CREATOR", "REVIEWER", "ADMIN"]
+        },
+        "department": {
+          "type": "string",
+          "description": "Department affiliation",
+          "maxLength": 150
+        },
+        "joinedDate": {
+          "type": "string",
+          "description": "Membership join date",
+          "maxLength": 50
+        },
+        "bookmarks": {
+          "type": "array",
+          "description": "Array of saved workIds"
+        }
+      },
+      "required": ["id", "fullName", "email", "role"]
+    },
+    "admin": {
+      "title": "Admin",
+      "description": "Authoritative list of church administrators",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "description": "Admin email",
+          "maxLength": 150
+        },
+        "role": {
+          "type": "string",
+          "description": "Admin level designation",
+          "maxLength": 50
+        }
+      },
+      "required": ["email", "role"]
+    }
+  },
+  "firestore": {
+    "/works/{workId}": {
+      "schema": "work",
+      "description": "Archived literary and artistic works published by Sunday school members"
+    },
+    "/members/{memberId}": {
+      "schema": "member",
+      "description": "Roster of writers, organizers, and presenters in the church art department"
+    },
+    "/events/{eventId}": {
+      "schema": "event",
+      "description": "Weekly, monthly, and yearly church programs and festivals"
+    },
+    "/users/{userId}": {
+      "schema": "userProfile",
+      "description": "Registered user accounts and permissions"
+    },
+    "/admins/{adminId}": {
+      "schema": "admin",
+      "description": "Administrator authority registry"
+    }
+  }
+}

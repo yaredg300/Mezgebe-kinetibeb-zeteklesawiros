@@ -1,9 +1,23 @@
 <!doctype html>
-<html lang="am">
+<html lang="am" class="light">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/jpeg" href="/assets/ic_church_logo.jpg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (function() {
+        try {
+          var mode = localStorage.getItem('mezgebe_theme_mode');
+          if (mode === 'DARK') {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+        } catch (e) {
+          document.documentElement.classList.remove('dark');
+        }
+      })();
+    </script>
     <title>መዝገበ ኪነጥበብ</title>
     <meta name="description" content="የተክለ ሣዊሮስ ሰንበት ትምህርት ቤት የኪነጥበብ እና ባህላዊ መዝገብ - Art & Cultural Archive" />
     <meta property="og:title" content="መዝገበ ኪነጥበብ" />

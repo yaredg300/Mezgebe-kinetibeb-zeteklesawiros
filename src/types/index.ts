@@ -77,6 +77,138 @@ export const SUBMISSION_STATUS_CONFIG: Record<
   },
 };
 
+export type SundaySchoolDepartment =
+  | 'kinetibeb'
+  | 'ehud_merha_gibir'
+  | 'education'
+  | 'mezmur'
+  | 'records'
+  | 'media'
+  | 'finance'
+  | string;
+
+export interface DepartmentInfo {
+  id: string;
+  titleAmharic: string;
+  subtitleAmharic: string;
+  shortTitleAmharic: string;
+  iconName: string;
+  badgeLabel: string;
+  descriptionAmharic: string;
+  accentColor: string;
+  status: 'ACTIVE' | 'PREPARATION' | 'PLANNED';
+  coordinatorName?: string;
+  memberCount?: number;
+  programsCount?: number;
+  isCustom?: boolean;
+}
+
+export const DEPARTMENTS: Record<string, DepartmentInfo> = {
+  kinetibeb: {
+    id: 'kinetibeb',
+    titleAmharic: 'የኪነጥበብ ክፍል',
+    subtitleAmharic: 'የኪነጥበብ፣ የባህልና የስነ ጽሁፍ መዝገብ',
+    shortTitleAmharic: 'ኪነጥበብ ክፍል',
+    iconName: 'Palette',
+    badgeLabel: 'ኪነጥበብ',
+    descriptionAmharic: 'የተክለ ሣዊሮስ ሰንበት ትምህርት ቤት የቴአትር፣ የግጥም፣ የመነባንብ፣ የስነ-ጽሁፍና የብራና ቅርስ ማዕከል',
+    accentColor: '#B88500',
+    status: 'ACTIVE',
+    coordinatorName: 'ዲ/ን ቴዎድሮስ አማረ',
+    memberCount: 24,
+    programsCount: 16,
+  },
+  ehud_merha_gibir: {
+    id: 'ehud_merha_gibir',
+    titleAmharic: 'የእሁድ መርሃ ግብር ክፍል',
+    subtitleAmharic: 'የ2019 ዓ.ም. ዓመታዊ፣ ወርሃዊና የዕለት ዕቅድ ጥቅል',
+    shortTitleAmharic: 'እሁድ መርሃ ግብር',
+    iconName: 'CalendarDays',
+    badgeLabel: 'እሁድ መርሃ ግብር',
+    descriptionAmharic: 'የሕፃናትና የማዕከላውያን የ2019 ዓ.ም. የእሁድ አገልግሎት የሰዓት ሰሌዳ፣ የወር ዕቅዶችና የዕለት አገልጋዮች ምደባ',
+    accentColor: '#0C4A9E',
+    status: 'ACTIVE',
+    coordinatorName: 'የመርሐ ግብር አስተባባሪ ኮሚቴ',
+    memberCount: 38,
+    programsCount: 51,
+  },
+};
+
+export const ALL_SUNDAY_SCHOOL_DEPARTMENTS: DepartmentInfo[] = [
+  DEPARTMENTS.kinetibeb,
+  DEPARTMENTS.ehud_merha_gibir,
+  {
+    id: 'education',
+    titleAmharic: 'የትምህርትና ስልጠና ክፍል',
+    subtitleAmharic: 'የክፍል ደረጃዎች ስርዓተ-ትምህርትና ፈተናዎች',
+    shortTitleAmharic: 'ትምህርት ክፍል',
+    iconName: 'BookOpen',
+    badgeLabel: 'ትምህርት',
+    descriptionAmharic: 'የሕፃናት፣ ማዕከላውያን፣ ወጣቶችና አበው የሃይማኖት፣ የስርዓተ ቤተክርስቲያንና የመጽሐፍ ቅዱስ ጥናት ሞጁሎችና ፈተናዎች',
+    accentColor: '#16A34A',
+    status: 'PREPARATION',
+    coordinatorName: 'መምህር ኤርምያስ በላይ',
+    memberCount: 42,
+    programsCount: 12,
+  },
+  {
+    id: 'mezmur',
+    titleAmharic: 'የመዝሙር ክፍል',
+    subtitleAmharic: 'የዜማ ስልጠና፣ የመዘምራን ድልድልና የበዓላት ዝግጅት',
+    shortTitleAmharic: 'መዝሙር ክፍል',
+    iconName: 'Music',
+    badgeLabel: 'መዝሙር',
+    descriptionAmharic: 'የቅዱስ ያሬድ ዜማዎች ስልጠና፣ የሕፃናትና ወጣቶች መዘምራን ልምምድ፣ የበገናና የመሰንቆ ጥናት እንዲሁም የበዓላት መዝሙራት ማህደር',
+    accentColor: '#9333EA',
+    status: 'PREPARATION',
+    coordinatorName: 'ሊቀ መዘምራን ገብረ ማርያም',
+    memberCount: 56,
+    programsCount: 20,
+  },
+  {
+    id: 'records',
+    titleAmharic: 'የአባላትና ቁጥጥር ክፍል',
+    subtitleAmharic: 'የአባላት ምዝገባ፣ የደብተር ቁጥጥርና ስነ-ስርዓት',
+    shortTitleAmharic: 'አባላትና ቁጥጥር',
+    iconName: 'Users',
+    badgeLabel: 'አባላትና ቁጥጥር',
+    descriptionAmharic: 'የሰንበት ት/ቤት ተማሪዎች ቆጠራ፣ ሳምንታዊ የተማሪዎች የመገኘት ሰሌዳ፣ የደብተር ምርመራና የስነ-ስርዓት ክትትል',
+    accentColor: '#D97706',
+    status: 'PREPARATION',
+    coordinatorName: 'አቶ ሃብታሙ ወርቁ',
+    memberCount: 18,
+    programsCount: 8,
+  },
+  {
+    id: 'media',
+    titleAmharic: 'የሕዝብ ግንኙነትና ሚዲያ ክፍል',
+    subtitleAmharic: 'ሳምንታዊ ማስታወቂያዎች፣ ዜናዎችና የሚዲያ ስራዎች',
+    shortTitleAmharic: 'ሚዲያና ግንኙነት',
+    iconName: 'Megaphone',
+    badgeLabel: 'ሚዲያና ህ/ግ',
+    descriptionAmharic: 'የሰንበት ጉባኤ ማስታወቂያዎች፣ የበዓላት ፎቶና ቪዲዮ ዘገባዎች፣ የዲጂታል ገጾች አስተዳደርና የህትመት ስራዎች',
+    accentColor: '#0284C7',
+    status: 'PREPARATION',
+    coordinatorName: 'ዲ/ን አማኑኤል ተስፋዬ',
+    memberCount: 14,
+    programsCount: 15,
+  },
+  {
+    id: 'finance',
+    titleAmharic: 'የልማትና ገቢ ማሰባሰቢያ ክፍል',
+    subtitleAmharic: 'የሰንበት ት/ቤት ልማትና በጎ አድራጎት ፕሮጀክቶች',
+    shortTitleAmharic: 'ልማትና ገቢ',
+    iconName: 'HandCoins',
+    badgeLabel: 'ልማትና ገቢ',
+    descriptionAmharic: 'የሰንበት ት/ቤቱን አቅም የሚያጠናክሩ የልማት ፕሮጀክቶች፣ የበጎ አድራጎት ድጋፎችና የገቢ ማሰባሰቢያ መርሐ ግብራት',
+    accentColor: '#059669',
+    status: 'PLANNED',
+    coordinatorName: 'የልማት ኮሚቴ ሰብሳቢ',
+    memberCount: 12,
+    programsCount: 6,
+  },
+];
+
 export type SundaySchoolDivision = 'children' | 'intermediates' | 'youth';
 
 export interface DivisionInfo {
@@ -160,6 +292,7 @@ export interface WorkItem {
   pdfFileName?: string | null;
   pdfFileSize?: string | null;
   pdfLocalPath?: string | null;
+  pdfUrl?: string | null;
 }
 
 export interface Writer {
@@ -301,6 +434,66 @@ export const PARCHMENT_PALETTES: ParchmentPalette[] = [
 
 export type BottomNavTab = 'HOME' | 'ARCHIVE' | 'SEARCH' | 'EVENTS' | 'PROFILE';
 
+export interface SundayProgramPlanEntry {
+  id: string;
+  monthAmharic: string;
+  dayNumber: number;
+  dateFullAmharic: string;
+  division: SundaySchoolDivision;
+  mainTopic: string;
+  subTheme?: string;
+  leader?: string;
+  presenterOrTeacher?: string;
+  hasProgram: boolean;
+  timeAmharic: string;
+  goalAmharic?: string;
+  category: string;
+  isSpecialEvent?: boolean;
+}
+
+export interface SundayTimetableSlot {
+  id: string;
+  timeRange: string;
+  slotTitle: string;
+  inCharge?: string;
+  notes?: string;
+}
+
+export interface SundayDailyPlanSheet {
+  id: string;
+  division: SundaySchoolDivision;
+  monthAmharic: string;
+  dayNumber: number;
+  dateAmharic: string;
+  mainTopic: string;
+  leader: string;
+  presenterOrTeacher: string;
+  timeAmharic: string;
+  purpose: string;
+  slots: SundayTimetableSlot[];
+  preProgramNeeds: string[];
+  postProgramStats?: {
+    participantsCount?: number;
+    actualStartTime?: string;
+    actualEndTime?: string;
+    evaluationNotes?: string;
+  };
+}
+
+export interface SundayPlanPdfPackage {
+  id: string;
+  division: SundaySchoolDivision;
+  title: string;
+  subtitle: string;
+  yearAmharic: string;
+  filePath: string;
+  fileName: string;
+  totalPages: number;
+  description: string;
+  scopeSummary: string;
+  sections: { title: string; pageNumber: number }[];
+}
+
 export type AppDestination =
   | { type: 'Splash' }
   | { type: 'Onboarding' }
@@ -311,3 +504,4 @@ export type AppDestination =
   | { type: 'WorkDetail'; workId: string }
   | { type: 'CreateWork' }
   | { type: 'ReviewerQueue' };
+

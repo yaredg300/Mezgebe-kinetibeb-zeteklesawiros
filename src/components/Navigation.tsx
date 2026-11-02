@@ -3,10 +3,13 @@ import { Home, BookOpen, Search, Calendar, User, PlusCircle } from 'lucide-react
 import { BottomNavTab } from '../types';
 import { useArchive } from '../context/ArchiveContext';
 
+import { DepartmentSwitcher } from './DepartmentSwitcher';
+
 interface NavigationProps {
   currentTab: BottomNavTab;
   onTabSelected: (tab: BottomNavTab) => void;
   onCreateWorkClick: () => void;
+  onOpenDepartmentsHub?: () => void;
 }
 
 export const BottomNav: React.FC<NavigationProps> = ({
@@ -57,6 +60,7 @@ export const DesktopSidebar: React.FC<NavigationProps> = ({
   currentTab,
   onTabSelected,
   onCreateWorkClick,
+  onOpenDepartmentsHub,
 }) => {
   const { currentUser } = useArchive();
 
@@ -92,6 +96,14 @@ export const DesktopSidebar: React.FC<NavigationProps> = ({
               {currentUser.department}
             </p>
           </div>
+        </div>
+
+        {/* Department Switcher */}
+        <div className="mb-5">
+          <div className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-1 mb-1.5 font-serif-ethiopic">
+            የሰንበት ት/ቤት ዋና ክፍል፦
+          </div>
+          <DepartmentSwitcher variant="hero" onOpenAllDepartments={onOpenDepartmentsHub} />
         </div>
 
         <div className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mb-2">

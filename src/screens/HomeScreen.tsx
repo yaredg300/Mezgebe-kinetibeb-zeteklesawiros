@@ -14,13 +14,21 @@ import { ManuscriptBox, HaragDivider, StatusBadge } from '../components/Ornament
 import { WorkCard, CategoryCard, WriterCard, EventCard } from '../components/Cards';
 import { SundaySchoolIdentityDialog } from '../components/SundaySchoolIdentityDialog';
 import { QuickWorkPreviewModal } from '../components/LiturgicalAudioComponents';
+import { DepartmentSwitcher } from '../components/DepartmentSwitcher';
 
 export const HomeScreen: React.FC<{
   onWorkClick: (workId: string) => void;
   onCategoryClick: (categoryId: string) => void;
   onSearchClick: () => void;
   onCreateWorkClick: () => void;
-}> = ({ onWorkClick, onCategoryClick, onSearchClick, onCreateWorkClick }) => {
+  onOpenDepartmentsHub?: () => void;
+}> = ({
+  onWorkClick,
+  onCategoryClick,
+  onSearchClick,
+  onCreateWorkClick,
+  onOpenDepartmentsHub,
+}) => {
   const {
     works,
     categories,
@@ -50,10 +58,14 @@ export const HomeScreen: React.FC<{
         title="መዝገበ ኪነጥበብ"
         subtitle="ዘተክለ ሣዊሮስ ሰንበት ትምህርት ቤት"
         onOpenChurchInfo={() => setShowChurchInfo(true)}
+        onOpenDepartmentsHub={onOpenDepartmentsHub}
         onSearchClick={onSearchClick}
       />
 
       <div className="max-w-5xl mx-auto px-4 py-4 space-y-5">
+        {/* Department Switcher (Kinetibeb vs Ehud Merha Gibir) */}
+        <DepartmentSwitcher variant="hero" />
+
         {/* Hero Sunday School Identity Banner */}
         <ManuscriptBox
           onClick={() => setShowChurchInfo(true)}

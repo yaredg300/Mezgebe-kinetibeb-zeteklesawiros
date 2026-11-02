@@ -4,6 +4,8 @@ import { SundaySchoolDivision, DIVISIONS } from '../types';
 import { useArchive } from '../context/ArchiveContext';
 import { HaragDivider } from '../components/Ornaments';
 
+import { DepartmentSwitcher } from '../components/DepartmentSwitcher';
+
 export const DivisionSelectionScreen: React.FC<{
   onContinueToLogin: (division: SundaySchoolDivision) => void;
   onExploreAsGuest: (division: SundaySchoolDivision) => void;
@@ -39,16 +41,21 @@ export const DivisionSelectionScreen: React.FC<{
           ተክለ ሳዊሮስ ሰንበት ት/ቤት
         </h1>
         <p className="text-xs font-semibold text-[#966C00] dark:text-[#FFD54F] tracking-wide mt-0.5">
-          መዝገበ ኪነጥበብ • የዕድሜ እርከን መምረጫ
+          መዝገበ ኪነጥበብ እና የእሁድ መርሃ ግብር ክፍል
         </p>
 
         <HaragDivider className="my-3 max-w-xs" height={14} />
 
-        <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100 text-center mt-1">
-          የትኛውን የኪነጥበብ ቅርንጫፍ መጎብኘት ይፈልጋሉ?
+        {/* Department Switcher */}
+        <div className="w-full mb-5">
+          <DepartmentSwitcher variant="hero" />
+        </div>
+
+        <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100 text-center">
+          የዕድሜ እርከን (Division) ይምረጡ፦
         </h2>
-        <p className="text-xs text-slate-600 dark:text-slate-400 text-center max-w-md mt-1 mb-6">
-          የተመረጠው ቅርንጫፍ ሙሉውን የኪነጥበብ፣ የመድረክ ዝግጅትና የትምህርት ይዘት ለይቶ ያቀርብልዎታል።
+        <p className="text-xs text-slate-600 dark:text-slate-400 text-center max-w-md mt-1 mb-5">
+          የተመረጠው እርከን ሙሉውን የኪነጥበብ ስራዎች፣ የ2019 ዓ.ም. ዓመታዊ የመርሃ ግብር ሰሌዳና የዕለት ዕቅዶችን ያቀርብልዎታል።
         </p>
 
         {/* Division Cards */}

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useArchive } from './context/ArchiveContext';
+import React, { useState, useContext } from 'react';
+import { useArchive, ArchiveContext, ArchiveProvider } from './context/ArchiveContext';
 import { BottomNavTab, SundaySchoolDivision } from './types';
 
 // Screens
@@ -16,26 +16,30 @@ import { CreateWorkScreen } from './screens/CreateWorkScreen';
 import { ReviewerQueueScreen } from './screens/ReviewerQueueScreen';
 import { SearchScreen } from './screens/SearchScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
+import { EhudMerhaGibirScreen } from './screens/EhudMerhaGibirScreen';
+import { DepartmentGatewayScreen } from './screens/DepartmentGatewayScreen';
+import { DepartmentPortalScreen } from './screens/DepartmentPortalScreen';
 
 // Navigation & Overlays
 import { AppHeader } from './components/AppHeader';
 import { BottomNav, DesktopSidebar } from './components/Navigation';
 import { SundaySchoolIdentityDialog } from './components/SundaySchoolIdentityDialog';
+import { AllDepartmentsModal } from './components/AllDepartmentsModal';
 import {
   LiturgicalAudioFloatingIsland,
   LiturgicalAudioPlayerModal,
 } from './components/LiturgicalAudioComponents';
 
-type AppFlow = 'splash' | 'onboarding' | 'division_selection' | 'login' | 'main';
+type AppFlow = 'splash' | 'department_gateway' | 'onboarding' | 'division_selection' | 'login' | 'main';
 
 type DeepScreen =
   | { type: 'none' }
   | { type: 'category'; categoryId: string }
   | { type: 'work'; workId: string }
-  | { type: 'create_work' }
+  | { type: 'create_work'; editWorkId?: string }
   | { type: 'reviewer_queue' };
 
-export const App: React.FC = () => {
+const AppContent: React.FC = () => {
   const {
     currentAudioTrack,
     isAudioPlaying,
@@ -44,14 +48,37 @@ export const App: React.FC = () => {
     stopAudio,
     setAudioProgress,
     selectDivision,
+    activeDepartment,
+    setActiveDepartment,
   } = useArchive();
 
-  // Root authentication / onboarding flow
-  const [flow, setFlow] = useState<AppFlow>('splash');
+  // Root authentication / onboarding flow with persistence check
+  const [flow, setFlow] = useState<AppFlow>(() => {
+    try {
+      const hasOnboarded = localStorage.getItem('mezgebe_has_onboarded');
+      if (hasOnboarded === 'true') {
+        return 'main';
+      }
+    } catch {
+      // fallback
+    }
+    return 'splash';
+  });
+
   const [activeTab, setActiveTab] = useState<BottomNavTab>('HOME');
   const [deepScreen, setDeepScreen] = useState<DeepScreen>({ type: 'none' });
   const [showChurchInfo, setShowChurchInfo] = useState<boolean>(false);
+  const [showDepartmentsModal, setShowDepartmentsModal] = useState<boolean>(false);
   const [isAudioModalOpen, setIsAudioModalOpen] = useState<boolean>(false);
+
+  const markOnboardedAndProceed = (nextFlow: AppFlow) => {
+    try {
+      localStorage.setItem('mezgebe_has_onboarded', 'true');
+    } catch {
+      // ignore
+    }
+    setFlow(nextFlow);
+  };
 
   // Navigation handlers
   const handleOpenCategory = (categoryId: string) => {
@@ -64,8 +91,8 @@ export const App: React.FC = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleOpenCreateWork = () => {
-    setDeepScreen({ type: 'create_work' });
+  const handleOpenCreateWork = (editWorkId?: string) => {
+    setDeepScreen({ type: 'create_work', editWorkId });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -86,12 +113,43 @@ export const App: React.FC = () => {
 
   // 1. Splash Screen
   if (flow === 'splash') {
-    return <SplashScreen onFinishSplash={() => setFlow('onboarding')} />;
+    return <SplashScreen onFinishSplash={() => setFlow('department_gateway')} />;
   }
 
-  // 2. Onboarding Screen
+  // 2. Department Choice Gateway Screen (Department switcher BEFORE intro)
+  if (flow === 'department_gateway') {
+    return (
+      <DepartmentGatewayScreen
+        onSelectKinetibeb={(viewIntro) => {
+          setActiveDepartment('kinetibeb');
+          if (viewIntro) {
+            setFlow('onboarding');
+          } else {
+            setFlow('division_selection');
+          }
+        }}
+        onSelectEhudMerhaGibir={() => {
+          setActiveDepartment('ehud_merha_gibir');
+          markOnboardedAndProceed('main');
+        }}
+        onExploreDirectly={(dept) => {
+          setActiveDepartment(dept);
+          markOnboardedAndProceed('main');
+        }}
+      />
+    );
+  }
+
+  // 3. Onboarding Screen (Kinetibeb deep creation & review walkthrough)
   if (flow === 'onboarding') {
-    return <OnboardingScreen onComplete={() => setFlow('division_selection')} />;
+    return (
+      <OnboardingScreen
+        onComplete={() => {
+          setFlow('division_selection');
+        }}
+        onBackToDepartmentChoice={() => setFlow('department_gateway')}
+      />
+    );
   }
 
   // 3. Division Selection Screen
@@ -100,11 +158,11 @@ export const App: React.FC = () => {
       <DivisionSelectionScreen
         onContinueToLogin={(div: SundaySchoolDivision) => {
           selectDivision(div);
-          setFlow('login');
+          markOnboardedAndProceed('login');
         }}
         onExploreAsGuest={(div: SundaySchoolDivision) => {
           selectDivision(div);
-          setFlow('main');
+          markOnboardedAndProceed('main');
         }}
       />
     );
@@ -114,8 +172,18 @@ export const App: React.FC = () => {
   if (flow === 'login') {
     return (
       <LoginScreen
-        onLoginSuccess={() => setFlow('main')}
-        onContinueAsGuest={() => setFlow('main')}
+        onLoginSuccess={(deptId) => {
+          if (deptId) {
+            setActiveDepartment(deptId);
+          }
+          markOnboardedAndProceed('main');
+        }}
+        onContinueAsGuest={(deptId) => {
+          if (deptId) {
+            setActiveDepartment(deptId);
+          }
+          markOnboardedAndProceed('main');
+        }}
         onChangeDivisionClick={() => setFlow('division_selection')}
       />
     );
@@ -128,7 +196,8 @@ export const App: React.FC = () => {
       <DesktopSidebar
         currentTab={activeTab}
         onTabSelected={handleTabSelected}
-        onCreateWorkClick={handleOpenCreateWork}
+        onCreateWorkClick={() => handleOpenCreateWork()}
+        onOpenDepartmentsHub={() => setShowDepartmentsModal(true)}
       />
 
       {/* Main Content Area */}
@@ -147,15 +216,18 @@ export const App: React.FC = () => {
             <WorkDetailScreen
               workId={deepScreen.workId}
               onBackClick={handleBackToTabs}
+              onEditWork={(workId) => handleOpenCreateWork(workId)}
             />
           )}
 
           {deepScreen.type === 'create_work' && (
             <CreateWorkScreen
+              editWorkId={deepScreen.editWorkId}
               onWorkCreated={(workId) => {
                 handleOpenWork(workId);
               }}
               onBackClick={handleBackToTabs}
+              onNavigateToLogin={() => setFlow('login')}
             />
           )}
 
@@ -170,12 +242,28 @@ export const App: React.FC = () => {
           {deepScreen.type === 'none' && (
             <>
               {activeTab === 'HOME' && (
-                <HomeScreen
-                  onWorkClick={handleOpenWork}
-                  onCategoryClick={handleOpenCategory}
-                  onSearchClick={() => handleTabSelected('SEARCH')}
-                  onCreateWorkClick={handleOpenCreateWork}
-                />
+                activeDepartment === 'ehud_merha_gibir' ? (
+                  <EhudMerhaGibirScreen
+                    onSwitchToKinetibeb={() => setActiveDepartment('kinetibeb')}
+                    onOpenWorkClick={handleOpenWork}
+                    onOpenDepartmentsHub={() => setShowDepartmentsModal(true)}
+                  />
+                ) : activeDepartment === 'kinetibeb' ? (
+                  <HomeScreen
+                    onWorkClick={handleOpenWork}
+                    onCategoryClick={handleOpenCategory}
+                    onSearchClick={() => handleTabSelected('SEARCH')}
+                    onCreateWorkClick={handleOpenCreateWork}
+                    onOpenDepartmentsHub={() => setShowDepartmentsModal(true)}
+                  />
+                ) : (
+                  <DepartmentPortalScreen
+                    departmentId={activeDepartment}
+                    onOpenDepartmentsHub={() => setShowDepartmentsModal(true)}
+                    onSwitchToKinetibeb={() => setActiveDepartment('kinetibeb')}
+                    onSwitchToEhudMerhaGibir={() => setActiveDepartment('ehud_merha_gibir')}
+                  />
+                )
               )}
 
               {activeTab === 'ARCHIVE' && (
@@ -203,6 +291,9 @@ export const App: React.FC = () => {
                   onNavigateToEvents={() => handleTabSelected('EVENTS')}
                   onOpenChurchInfo={() => setShowChurchInfo(true)}
                   onSwitchDivision={() => setFlow('division_selection')}
+                  onNavigateToLogin={() => setFlow('login')}
+                  onOpenDepartmentsModal={() => setShowDepartmentsModal(true)}
+                  onNavigateToDepartmentGateway={() => setFlow('department_gateway')}
                 />
               )}
             </>
@@ -247,8 +338,28 @@ export const App: React.FC = () => {
         isOpen={showChurchInfo}
         onClose={() => setShowChurchInfo(false)}
       />
+
+      {/* All Sunday School Departments Directory & Switcher Modal */}
+      <AllDepartmentsModal
+        isOpen={showDepartmentsModal}
+        onClose={() => setShowDepartmentsModal(false)}
+        onSelectDepartment={(dept) => setActiveDepartment(dept)}
+      />
     </div>
   );
 };
 
+export const App: React.FC = () => {
+  const existingContext = useContext(ArchiveContext);
+  if (!existingContext) {
+    return (
+      <ArchiveProvider>
+        <AppContent />
+      </ArchiveProvider>
+    );
+  }
+  return <AppContent />;
+};
+
 export default App;
+

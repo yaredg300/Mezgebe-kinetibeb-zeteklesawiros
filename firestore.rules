@@ -1,0 +1,184 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        (request.auth.token.email == 'yaredcotm@gmail.com' && request.auth.token.email_verified == true) ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isReviewer() {
+      return isAdmin() || (
+        isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['REVIEWER', 'ADMIN']
+      );
+    }
+
+    // 1. Connection test doc
+    match /test/{docId} {
+      allow read: if true;
+    }
+
+    // 2. Admins collection
+    match /admins/{adminId} {
+      allow get: if isSignedIn();
+      allow list: if isAdmin();
+      allow create, update, delete: if isAdmin() && isValidId(adminId);
+    }
+
+    // 3. User Profiles collection
+    function isValidUserProfile(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.fullName is string && data.fullName.size() > 0 && data.fullName.size() <= 150 &&
+             data.email is string && data.email.size() <= 150 &&
+             data.role in ['MEMBER', 'CONTRIBUTOR', 'REVIEWER', 'EDITOR', 'ADMIN', 'SUPER_ADMIN'] &&
+             (!('department' in data) || (data.department is string && data.department.size() <= 150)) &&
+             (!('joinedDate' in data) || (data.joinedDate is string && data.joinedDate.size() <= 50)) &&
+             (!('bookmarks' in data) || (data.bookmarks is list && data.bookmarks.size() <= 500));
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isOwner(userId) && isValidId(userId) && isValidUserProfile(incoming()) && incoming().role in ['MEMBER', 'CONTRIBUTOR'];
+      allow update: if isValidId(userId) && isValidUserProfile(incoming()) && (
+        (isOwner(userId) && incoming().id == existing().id && incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'department', 'bookmarks'])) ||
+        (isAdmin() && incoming().id == existing().id)
+      );
+      allow delete: if isAdmin();
+    }
+
+    // 4. Church Members collection (Roster of writers, organizers, presenters)
+    function isValidMember(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.fullName is string && data.fullName.size() > 0 && data.fullName.size() <= 150 &&
+             data.duty in ['WRITER', 'ORGANIZER', 'PRESENTER'] &&
+             data.department is string && data.department.size() <= 150 &&
+             (!('phone' in data) || (data.phone is string && data.phone.size() <= 30)) &&
+             (!('spiritualTitle' in data) || (data.spiritualTitle is string && data.spiritualTitle.size() <= 100)) &&
+             (!('joinedYear' in data) || (data.joinedYear is string && data.joinedYear.size() <= 30)) &&
+             (!('assignedWorksCount' in data) || (data.assignedWorksCount is number)) &&
+             (!('bio' in data) || (data.bio is string && data.bio.size() <= 1000));
+    }
+
+    match /members/{memberId} {
+      allow get, list: if true;
+      allow create: if (isAdmin() || isReviewer()) && isValidId(memberId) && isValidMember(incoming());
+      allow update: if (isAdmin() || isReviewer()) && isValidId(memberId) && isValidMember(incoming()) && incoming().id == existing().id;
+      allow delete: if isAdmin() && isValidId(memberId);
+    }
+
+    // 5. Cultural Events collection (Church programs and festivals)
+    function isValidEvent(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+             data.recurrence in ['WEEKLY', 'MONTHLY', 'YEARLY', 'SPECIAL'] &&
+             data.location is string && data.location.size() <= 200 &&
+             data.organizer is string && data.organizer.size() <= 150 &&
+             (!('dateAmharic' in data) || (data.dateAmharic is string && data.dateAmharic.size() <= 100)) &&
+             (!('timeAmharic' in data) || (data.timeAmharic is string && data.timeAmharic.size() <= 100)) &&
+             (!('category' in data) || (data.category is string && data.category.size() <= 100)) &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 2000)) &&
+             (!('division' in data) || data.division == null || (data.division is string && data.division.size() <= 50)) &&
+             (!('assignments' in data) || (data.assignments is list && data.assignments.size() <= 50));
+    }
+
+    match /events/{eventId} {
+      allow get, list: if true;
+      allow create: if (isAdmin() || isReviewer()) && isValidId(eventId) && isValidEvent(incoming());
+      allow update: if (isAdmin() || isReviewer()) && isValidId(eventId) && isValidEvent(incoming()) && incoming().id == existing().id;
+      allow delete: if isAdmin() && isValidId(eventId);
+    }
+
+    // 6. Works collection (Poems, literature, theater, scripts, artwork)
+    function isValidWork(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 300 &&
+             data.writerId is string && data.writerId.size() <= 128 &&
+             data.categoryId is string && data.categoryId.size() <= 50 &&
+             data.content is string && data.content.size() <= 50000 &&
+             data.status in ['DRAFT', 'UNDER_REVIEW', 'APPROVED', 'REVISION_REQUESTED', 'REJECTED'] &&
+             data.division in ['children', 'intermediates', 'youth'] &&
+             (!('writerName' in data) || (data.writerName is string && data.writerName.size() <= 150)) &&
+             (!('categoryName' in data) || (data.categoryName is string && data.categoryName.size() <= 100)) &&
+             (!('dateAmharic' in data) || (data.dateAmharic is string && data.dateAmharic.size() <= 50)) &&
+             (!('excerpt' in data) || (data.excerpt is string && data.excerpt.size() <= 500)) &&
+             (!('readTime' in data) || (data.readTime is string && data.readTime.size() <= 30)) &&
+             (!('version' in data) || (data.version is number)) &&
+             (!('tags' in data) || (data.tags is list && data.tags.size() <= 30)) &&
+             (!('isFeatured' in data) || (data.isFeatured is bool)) &&
+             (!('approvedBy' in data) || (data.approvedBy is string && data.approvedBy.size() <= 150)) &&
+             (!('approvedDate' in data) || (data.approvedDate is string && data.approvedDate.size() <= 50)) &&
+             (!('reviewerFeedback' in data) || (data.reviewerFeedback is string && data.reviewerFeedback.size() <= 2000)) &&
+             (!('hasPdfAttachment' in data) || (data.hasPdfAttachment is bool)) &&
+             (!('pdfFileName' in data) || (data.pdfFileName is string && data.pdfFileName.size() <= 255)) &&
+             (!('pdfFileSize' in data) || (data.pdfFileSize is string && data.pdfFileSize.size() <= 50)) &&
+             (!('pdfUrl' in data) || (data.pdfUrl is string && data.pdfUrl.size() <= 1000));
+    }
+
+    match /works/{workId} {
+      // Anyone can read approved works; authors and reviewers can read unapproved works
+      allow get: if isValidId(workId) && (
+        resource.data.status == 'APPROVED' ||
+        (isSignedIn() && (resource.data.writerId == request.auth.uid || isReviewer() || isAdmin()))
+      );
+
+      // List query security check
+      allow list: if true;
+
+      // Create: Authenticated users can submit their own works under review or draft
+      allow create: if isSignedIn() &&
+                    isValidId(workId) &&
+                    isValidWork(incoming()) &&
+                    incoming().writerId == request.auth.uid &&
+                    (incoming().status in ['DRAFT', 'UNDER_REVIEW'] || isAdmin());
+
+      // Update:
+      // Authors can update content/title of their own works in draft/under review
+      // Reviewers/Admins can update status, feedback, approvedBy, etc.
+      allow update: if isSignedIn() &&
+                    isValidId(workId) &&
+                    isValidWork(incoming()) &&
+                    incoming().id == existing().id &&
+                    incoming().writerId == existing().writerId && (
+                      isAdmin() ||
+                      (isReviewer() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'reviewerFeedback', 'approvedBy', 'approvedDate', 'isFeatured', 'version', 'updatedAt'])) ||
+                      (isOwner(existing().writerId) && existing().status in ['DRAFT', 'UNDER_REVIEW', 'REVISION_REQUESTED'] &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['title', 'content', 'excerpt', 'tags', 'hasPdfAttachment', 'pdfFileName', 'pdfFileSize', 'pdfUrl', 'version', 'status', 'division', 'categoryId', 'categoryName', 'updatedAt']) &&
+                       incoming().status in ['DRAFT', 'UNDER_REVIEW'])
+                    );
+
+      // Delete: Author (if draft) or Admin
+      allow delete: if isValidId(workId) && (isAdmin() || (isOwner(resource.data.writerId) && resource.data.status == 'DRAFT'));
+    }
+  }
+}

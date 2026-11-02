@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { ArrowRight, CheckCircle, BookOpen, FileText, Clapperboard, History, Camera, UserCheck, ShieldCheck } from 'lucide-react';
+import { ArrowRight, ArrowLeft, CheckCircle, BookOpen, FileText, Clapperboard, History, Camera, UserCheck, ShieldCheck } from 'lucide-react';
 import { HaragDivider, ManuscriptBox } from '../components/Ornaments';
 
 export const OnboardingScreen: React.FC<{
   onComplete: () => void;
-}> = ({ onComplete }) => {
+  onBackToDepartmentChoice?: () => void;
+}> = ({ onComplete, onBackToDepartmentChoice }) => {
   const [currentStep, setCurrentStep] = useState<number>(0);
 
   return (
@@ -12,6 +13,15 @@ export const OnboardingScreen: React.FC<{
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
+          {onBackToDepartmentChoice && (
+            <button
+              onClick={onBackToDepartmentChoice}
+              className="p-1 rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              title="ወደ ክፍሎች ምርጫ ተመለስ"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+          )}
           <img
             src="/assets/ic_church_logo.jpg"
             alt="ዓርማ"
@@ -20,9 +30,14 @@ export const OnboardingScreen: React.FC<{
               (e.target as HTMLElement).style.display = 'none';
             }}
           />
-          <span className="text-base font-bold text-[#0C4A9E] dark:text-[#7FAFFF]">
-            መዝገበ ኪነጥበብ
-          </span>
+          <div>
+            <span className="text-base font-bold text-[#0C4A9E] dark:text-[#7FAFFF] block leading-tight">
+              የኪነጥበብ ክፍል
+            </span>
+            <span className="text-[10px] text-[#B88500] font-semibold">
+              የፈጠራና የቅርስ ማህደር መግቢያ
+            </span>
+          </div>
         </div>
 
         {currentStep < 2 ? (

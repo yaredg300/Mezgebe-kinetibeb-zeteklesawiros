@@ -27,6 +27,9 @@ interface ProfileScreenProps {
   onNavigateToEvents: () => void;
   onOpenChurchInfo: () => void;
   onSwitchDivision: () => void;
+  onNavigateToLogin?: () => void;
+  onOpenDepartmentsModal?: () => void;
+  onNavigateToDepartmentGateway?: () => void;
 }
 
 export const ProfileScreen: React.FC<ProfileScreenProps> = ({
@@ -36,6 +39,9 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   onNavigateToEvents,
   onOpenChurchInfo,
   onSwitchDivision,
+  onNavigateToLogin,
+  onOpenDepartmentsModal,
+  onNavigateToDepartmentGateway,
 }) => {
   const {
     currentUser,
@@ -46,6 +52,9 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     toggleThemeMode,
     toggleBookmark,
     playWorkAudio,
+    firebaseUser,
+    signInWithGoogle,
+    logout,
   } = useArchive();
 
   const [activeTab, setActiveTab] = useState<'bookmarks' | 'submissions'>('bookmarks');
@@ -242,6 +251,25 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           </div>
         </button>
 
+        {onOpenDepartmentsModal && (
+          <button
+            onClick={onOpenDepartmentsModal}
+            className="p-4 rounded-2xl bg-white dark:bg-[#111D30] border border-[#B88500]/20 shadow-xs hover:border-[#B88500] transition-all text-left flex flex-col justify-between"
+          >
+            <div className="p-2.5 rounded-xl bg-amber-500/10 text-[#B88500] dark:text-[#FFD54F] w-fit mb-2">
+              <Layers className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="font-semibold text-xs md:text-sm text-slate-900 dark:text-slate-100">
+                የሰንበት ት/ቤት ክፍሎች
+              </div>
+              <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                ክፍሎችን ይምረጡ / አዲስ ይጨምሩ
+              </div>
+            </div>
+          </button>
+        )}
+
         <button
           onClick={toggleThemeMode}
           className="p-4 rounded-2xl bg-white dark:bg-[#111D30] border border-[#B88500]/20 shadow-xs hover:border-[#B88500] transition-all text-left flex flex-col justify-between"
@@ -251,10 +279,10 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           </div>
           <div>
             <div className="font-semibold text-xs md:text-sm text-slate-900 dark:text-slate-100">
-              {themeMode === 'DARK' ? 'ቀን ሞድ' : 'ምሽት ሞድ'}
+              {themeMode === 'DARK' ? 'ቀን ሞድ (Light)' : 'ምሽት ሞድ (Dark)'}
             </div>
             <div className="text-[11px] text-slate-500 dark:text-slate-400">
-              የገጽ እይታ ቀለም
+              የገጽ እይታ ቀለም (Light Default)
             </div>
           </div>
         </button>
@@ -345,8 +373,20 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
         </div>
       )}
 
+      {/* Cloud & Firebase Status Pill */}
+      <div className="mt-8 p-3 rounded-xl bg-blue-50/50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-600 dark:text-slate-300 gap-2">
+        <div className="flex items-center gap-2">
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="font-bold">Google Cloud & Firebase ተገናኝቷል፦</span>
+          <span className="font-mono text-[11px] text-[#0C4A9E] dark:text-[#7FAFFF]">symmetric-discovery-353bd</span>
+        </div>
+        <span className="text-[11px] text-slate-500">
+          {firebaseUser ? `የገቡበት አካውንት፦ ${firebaseUser.email}` : 'ያልገቡበት ሁኔታ (Guest)'}
+        </span>
+      </div>
+
       {/* Switch Division & Logout Footer */}
-      <div className="mt-12 pt-6 border-t border-[#B88500]/20 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div className="mt-6 pt-4 border-t border-[#B88500]/20 flex flex-col sm:flex-row items-center justify-between gap-4">
         <button
           onClick={onSwitchDivision}
           className="text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-[#0C4A9E] dark:hover:text-[#F5B800] flex items-center gap-1.5 py-2 px-3 rounded-lg hover:bg-[#B88500]/10"
@@ -355,13 +395,39 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           ክፍል ቀይር (ሕፃናት / ማዕከላውያን / ወጣት)
         </button>
 
-        <button
-          onClick={onSwitchDivision}
-          className="text-xs font-medium text-[#8B0000] hover:underline flex items-center gap-1.5 py-2 px-3"
-        >
-          <LogOut className="w-4 h-4" />
-          ውጣ (ይውጡ)
-        </button>
+        {firebaseUser ? (
+          <button
+            onClick={logout}
+            className="text-xs font-medium text-[#8B0000] hover:underline flex items-center gap-1.5 py-2 px-3"
+          >
+            <LogOut className="w-4 h-4" />
+            ከአካውንት ውጣ (Sign Out)
+          </button>
+        ) : (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={async () => {
+                try {
+                  await signInWithGoogle();
+                } catch {
+                  // Handled safely
+                }
+              }}
+              className="text-xs font-bold text-[#0C4A9E] dark:text-[#7FAFFF] hover:underline flex items-center gap-1.5 py-2 px-3"
+            >
+              <User className="w-4 h-4" />
+              በ Google ግባ
+            </button>
+            {onNavigateToLogin && (
+              <button
+                onClick={onNavigateToLogin}
+                className="text-xs font-bold px-3 py-1.5 rounded-lg bg-[#0C4A9E] text-white hover:bg-[#072958] transition-colors"
+              >
+                በኢሜይል ግባ / ተመዝገብ
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Quick Preview Modal */}

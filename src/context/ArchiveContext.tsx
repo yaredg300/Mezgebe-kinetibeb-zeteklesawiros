@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import {
+  SundaySchoolDepartment,
   SundaySchoolDivision,
   WorkCategory,
   WorkItem,
@@ -14,7 +15,42 @@ import {
   ProgramAssignment,
   LiturgicalAudioTrack,
   AppThemeMode,
+  SundayProgramPlanEntry,
+  SundayDailyPlanSheet,
+  SundayPlanPdfPackage,
+  DepartmentInfo,
+  ALL_SUNDAY_SCHOOL_DEPARTMENTS,
 } from '../types';
+import {
+  SUNDAY_PLAN_PDF_PACKAGES,
+  CHILDREN_ANNUAL_PLAN_2019,
+  MAEKELAWIYAN_ANNUAL_PLAN_2019,
+  CHILDREN_DAILY_PLANS_2019,
+  MAEKELAWIYAN_DAILY_PLANS_2019,
+} from '../data/sundayProgramPlans2019';
+import { db, auth, storage, googleProvider } from '../firebase/config';
+import {
+  collection,
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  onSnapshot,
+  getDocs,
+} from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import {
+  signInWithPopup,
+  signOut,
+  onAuthStateChanged,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  sendPasswordResetEmail,
+  updateProfile,
+  User as FirebaseUser,
+} from 'firebase/auth';
+import { handleFirestoreError, OperationType } from '../firebase/errors';
 
 export const INITIAL_CATEGORIES: WorkCategory[] = [
   {
@@ -833,13 +869,30 @@ interface ArchiveContextType {
   writers: Writer[];
   members: ChurchMember[];
   events: CulturalEvent[];
+  activeDepartment: SundaySchoolDepartment;
+  setActiveDepartment: (dept: SundaySchoolDepartment) => void;
+  departmentsList: DepartmentInfo[];
+  addDepartment: (dept: Omit<DepartmentInfo, 'id'>) => Promise<DepartmentInfo>;
+  pdfPackages: SundayPlanPdfPackage[];
+  childrenAnnualPlan: SundayProgramPlanEntry[];
+  maekelawiyanAnnualPlan: SundayProgramPlanEntry[];
+  dailyPlanSheets: SundayDailyPlanSheet[];
+  updateDailyPlanSheet: (sheetId: string, updates: Partial<SundayDailyPlanSheet>) => void;
   selectedDivision: SundaySchoolDivision;
   currentUser: UserProfile;
+  firebaseUser: FirebaseUser | null;
+  isAuthReady: boolean;
+  isSyncing: boolean;
   themeMode: AppThemeMode;
   audioTracks: LiturgicalAudioTrack[];
   currentAudioTrack: LiturgicalAudioTrack | null;
   isAudioPlaying: boolean;
   audioProgress: number;
+  signInWithGoogle: () => Promise<FirebaseUser | null>;
+  registerWithEmail: (email: string, password: string, fullName: string, role?: UserRole) => Promise<void>;
+  loginWithEmail: (email: string, password: string) => Promise<void>;
+  resetPasswordEmail: (email: string) => Promise<void>;
+  logout: () => Promise<void>;
   selectDivision: (div: SundaySchoolDivision) => void;
   toggleThemeMode: () => void;
   setUserRole: (role: UserRole) => void;
@@ -855,14 +908,31 @@ interface ArchiveContextType {
     hasPdfAttachment?: boolean;
     pdfFileName?: string | null;
     pdfFileSize?: string | null;
-  }) => WorkItem;
+    pdfUrl?: string | null;
+    file?: File | null;
+  }) => Promise<WorkItem>;
+  updateWork: (
+    workId: string,
+    data: {
+      title?: string;
+      content?: string;
+      excerpt?: string;
+      tags?: string[];
+      categoryId?: string;
+      division?: SundaySchoolDivision;
+      file?: File | null;
+      hasPdfAttachment?: boolean;
+      pdfFileName?: string | null;
+      pdfFileSize?: string | null;
+    }
+  ) => Promise<WorkItem>;
   reviewWorkAction: (
     workId: string,
     newStatus: SubmissionStatus,
     feedback?: string | null,
     reviewerName?: string
-  ) => void;
-  deleteWork: (workId: string) => void;
+  ) => Promise<void>;
+  deleteWork: (workId: string) => Promise<void>;
   addMember: (data: {
     fullName: string;
     duty: MemberDuty;
@@ -870,8 +940,8 @@ interface ArchiveContextType {
     spiritualTitle: string;
     department: string;
     bio: string;
-  }) => ChurchMember;
-  deleteMember: (memberId: string) => void;
+  }) => Promise<ChurchMember>;
+  deleteMember: (memberId: string) => Promise<void>;
   addEvent: (data: {
     title: string;
     dateAmharic: string;
@@ -882,10 +952,10 @@ interface ArchiveContextType {
     organizer: string;
     recurrence?: ProgramRecurrence;
     division?: SundaySchoolDivision | null;
-  }) => CulturalEvent;
-  deleteEvent: (eventId: string) => void;
-  addAssignmentToProgram: (eventId: string, assignment: ProgramAssignment) => void;
-  toggleAssignmentCompletion: (eventId: string, assignmentId: string) => void;
+  }) => Promise<CulturalEvent>;
+  deleteEvent: (eventId: string) => Promise<void>;
+  addAssignmentToProgram: (eventId: string, assignment: ProgramAssignment) => Promise<void>;
+  toggleAssignmentCompletion: (eventId: string, assignmentId: string) => Promise<void>;
   playTrack: (track: LiturgicalAudioTrack) => void;
   playWorkAudio: (work: WorkItem) => void;
   toggleAudioPlayPause: () => void;
@@ -893,7 +963,7 @@ interface ArchiveContextType {
   setAudioProgress: (progress: number) => void;
 }
 
-const ArchiveContext = createContext<ArchiveContextType | null>(null);
+export const ArchiveContext = createContext<ArchiveContextType | null>(null);
 
 export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [categories] = useState<WorkCategory[]>(INITIAL_CATEGORIES);
@@ -901,19 +971,102 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [writers] = useState<Writer[]>(INITIAL_WRITERS);
   const [members, setMembers] = useState<ChurchMember[]>(INITIAL_MEMBERS);
   const [events, setEvents] = useState<CulturalEvent[]>(INITIAL_EVENTS);
-  const [selectedDivision, setSelectedDivision] = useState<SundaySchoolDivision>('youth');
-  const [themeMode, setThemeMode] = useState<AppThemeMode>('LIGHT');
+  const [activeDepartment, setActiveDepartmentState] = useState<SundaySchoolDepartment>(() => {
+    try {
+      const saved = localStorage.getItem('mezgebe_active_dept');
+      if (saved) return saved as SundaySchoolDepartment;
+    } catch {
+      // ignore
+    }
+    return 'kinetibeb';
+  });
+
+  const setActiveDepartment = (dept: SundaySchoolDepartment) => {
+    setActiveDepartmentState(dept);
+    try {
+      localStorage.setItem('mezgebe_active_dept', dept);
+    } catch {
+      // ignore
+    }
+  };
+
+  const [dailyPlanSheets, setDailyPlanSheets] = useState<SundayDailyPlanSheet[]>([
+    ...CHILDREN_DAILY_PLANS_2019,
+    ...MAEKELAWIYAN_DAILY_PLANS_2019,
+  ]);
+
+  const updateDailyPlanSheet = (sheetId: string, updates: Partial<SundayDailyPlanSheet>) => {
+    setDailyPlanSheets((prev) =>
+      prev.map((sheet) => (sheet.id === sheetId ? { ...sheet, ...updates } : sheet))
+    );
+  };
+
+  const [departmentsList, setDepartmentsList] = useState<DepartmentInfo[]>(() => {
+    try {
+      const savedCustom = localStorage.getItem('mezgebe_custom_departments');
+      if (savedCustom) {
+        const parsed = JSON.parse(savedCustom);
+        return [...ALL_SUNDAY_SCHOOL_DEPARTMENTS, ...parsed];
+      }
+    } catch {
+      // ignore
+    }
+    return ALL_SUNDAY_SCHOOL_DEPARTMENTS;
+  });
+
+  const addDepartment = async (newDept: Omit<DepartmentInfo, 'id'>): Promise<DepartmentInfo> => {
+    const id = `dept_${Date.now()}`;
+    const department: DepartmentInfo = {
+      ...newDept,
+      id,
+      isCustom: true,
+      status: newDept.status || 'ACTIVE',
+    };
+    setDepartmentsList((prev) => {
+      const updated = [...prev, department];
+      try {
+        const customDepts = updated.filter((d) => d.isCustom);
+        localStorage.setItem('mezgebe_custom_departments', JSON.stringify(customDepts));
+      } catch {
+        // ignore
+      }
+      return updated;
+    });
+
+    try {
+      await setDoc(doc(db, 'departments', id), department);
+    } catch {
+      // non-blocking
+    }
+    return department;
+  };
+
+  const [selectedDivision, setSelectedDivision] = useState<SundaySchoolDivision>('children');
+  const [themeMode, setThemeMode] = useState<AppThemeMode>(() => {
+    try {
+      const saved = localStorage.getItem('mezgebe_theme_mode');
+      if (saved === 'DARK' || saved === 'LIGHT') {
+        return saved;
+      }
+    } catch {
+      // fallback
+    }
+    return 'LIGHT'; // STRICTLY DEFAULT TO LIGHT MODE
+  });
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState<boolean>(false);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
   const [currentUser, setCurrentUser] = useState<UserProfile>({
     id: 'u_default',
-    fullName: 'ቃልኪዳን ሰይፉ',
-    email: 'kalkidan@teklesawiros.org',
+    fullName: 'ተጠቃሚ (Guest)',
+    email: '',
     role: 'ADMIN',
     department: 'የሰንበት ት/ቤት አስተዳደር እና ኪነጥበብ ክፍል',
-    joinedDate: 'መስከረም ፳፻፲፭ ዓ.ም',
-    myWorksCount: 4,
-    mySubmissionsCount: 2,
-    myBookmarksCount: 3,
+    joinedDate: '፳፻፲፮ ዓ.ም',
+    myWorksCount: 0,
+    mySubmissionsCount: 0,
+    myBookmarksCount: 0,
   });
 
   const [audioTracks] = useState<LiturgicalAudioTrack[]>(INITIAL_AUDIO_TRACKS);
@@ -921,17 +1074,20 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [isAudioPlaying, setIsAudioPlaying] = useState<boolean>(false);
   const [audioProgress, setAudioProgress] = useState<number>(0.28);
 
-  // Sync theme mode to document element
+  // Sync theme mode to document element (STRICTLY DEFAULT TO LIGHT)
   useEffect(() => {
     const root = document.documentElement;
     if (themeMode === 'DARK') {
       root.classList.add('dark');
-    } else if (themeMode === 'LIGHT') {
-      root.classList.remove('dark');
+      root.classList.remove('light');
     } else {
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      if (prefersDark) root.classList.add('dark');
-      else root.classList.remove('dark');
+      root.classList.remove('dark');
+      root.classList.add('light');
+    }
+    try {
+      localStorage.setItem('mezgebe_theme_mode', themeMode);
+    } catch {
+      // ignore
     }
   }, [themeMode]);
 
@@ -952,6 +1108,297 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return () => clearInterval(interval);
   }, [isAudioPlaying]);
 
+  // 1. Firebase Auth listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setFirebaseUser(user);
+      setIsAuthReady(true);
+      if (user) {
+        const isMasterAdmin =
+          user.email === 'yaredcotm@gmail.com' || user.email === 'admin@teklesawiros.org';
+
+        let loadedRole: UserRole = isMasterAdmin ? 'ADMIN' : 'CONTRIBUTOR';
+        let loadedFullName = user.displayName || user.email?.split('@')[0] || 'የኪነጥበብ አባል';
+        let loadedDept = 'የተክለ ሣዊሮስ ሰንበት ት/ቤት ኪነጥበብ ክፍል';
+        let loadedJoinedDate = '፳፻፲፮ ዓ.ም';
+
+        try {
+          const userDocSnap = await getDoc(doc(db, 'users', user.uid));
+          if (userDocSnap.exists()) {
+            const data = userDocSnap.data();
+            if (data.fullName) loadedFullName = data.fullName;
+            if (data.role && !isMasterAdmin) loadedRole = data.role as UserRole;
+            if (data.department) loadedDept = data.department;
+            if (data.joinedDate) loadedJoinedDate = data.joinedDate;
+          }
+        } catch {
+          // Non-blocking read error
+        }
+
+        const updatedProfile: UserProfile = {
+          id: user.uid,
+          fullName: loadedFullName,
+          email: user.email || '',
+          role: loadedRole,
+          department: loadedDept,
+          joinedDate: loadedJoinedDate,
+          myWorksCount: 0,
+          mySubmissionsCount: 0,
+          myBookmarksCount: 0,
+        };
+        setCurrentUser(updatedProfile);
+
+        // Sync user doc to Firestore
+        try {
+          await setDoc(
+            doc(db, 'users', user.uid),
+            {
+              id: user.uid,
+              fullName: updatedProfile.fullName,
+              email: updatedProfile.email,
+              role: updatedProfile.role,
+              department: updatedProfile.department,
+              joinedDate: updatedProfile.joinedDate,
+              bookmarks: [],
+            },
+            { merge: true }
+          );
+
+          if (isMasterAdmin) {
+            await setDoc(
+              doc(db, 'admins', user.uid),
+              {
+                email: user.email,
+                role: 'SUPER_ADMIN',
+              },
+              { merge: true }
+            );
+          }
+        } catch {
+          // Non-blocking user sync
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // 2. Real-time Firestore synchronization for Works
+  useEffect(() => {
+    const worksCollectionRef = collection(db, 'works');
+    const unsubscribe = onSnapshot(
+      worksCollectionRef,
+      (snapshot) => {
+        let savedBookmarks: string[] = [];
+        try {
+          const raw = localStorage.getItem('mezgebe_bookmarks');
+          if (raw) savedBookmarks = JSON.parse(raw);
+        } catch {
+          // ignore
+        }
+
+        if (!snapshot.empty) {
+          const fetchedWorks: WorkItem[] = [];
+          snapshot.forEach((docSnap) => {
+            const w = docSnap.data() as WorkItem;
+            if (savedBookmarks.includes(w.id)) {
+              w.isBookmarked = true;
+            }
+            fetchedWorks.push(w);
+          });
+          setWorks(fetchedWorks);
+        } else {
+          // If Firestore collection is empty, seed initial works
+          seedInitialFirestoreData();
+        }
+      },
+      (error) => {
+        try {
+          handleFirestoreError(error, OperationType.LIST, 'works');
+        } catch (err) {
+          console.warn('Operating in offline/cached mode for works:', err);
+        }
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  // 3. Real-time Firestore synchronization for Members
+  useEffect(() => {
+    const membersCollectionRef = collection(db, 'members');
+    const unsubscribe = onSnapshot(
+      membersCollectionRef,
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const fetchedMembers: ChurchMember[] = [];
+          snapshot.forEach((docSnap) => {
+            fetchedMembers.push(docSnap.data() as ChurchMember);
+          });
+          setMembers(fetchedMembers);
+        }
+      },
+      (error) => {
+        try {
+          handleFirestoreError(error, OperationType.LIST, 'members');
+        } catch (err) {
+          console.warn('Operating in offline/cached mode for members:', err);
+        }
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  // 4. Real-time Firestore synchronization for Events
+  useEffect(() => {
+    const eventsCollectionRef = collection(db, 'events');
+    const unsubscribe = onSnapshot(
+      eventsCollectionRef,
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const fetchedEvents: CulturalEvent[] = [];
+          snapshot.forEach((docSnap) => {
+            fetchedEvents.push(docSnap.data() as CulturalEvent);
+          });
+          setEvents(fetchedEvents);
+        }
+      },
+      (error) => {
+        try {
+          handleFirestoreError(error, OperationType.LIST, 'events');
+        } catch (err) {
+          console.warn('Operating in offline/cached mode for events:', err);
+        }
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  // Seed initial church data to Cloud Firestore if empty
+  const seedInitialFirestoreData = async () => {
+    try {
+      for (const w of INITIAL_WORKS) {
+        await setDoc(doc(db, 'works', w.id), w, { merge: true });
+      }
+      for (const m of INITIAL_MEMBERS) {
+        await setDoc(doc(db, 'members', m.id), m, { merge: true });
+      }
+      for (const ev of INITIAL_EVENTS) {
+        await setDoc(doc(db, 'events', ev.id), ev, { merge: true });
+      }
+    } catch {
+      // Non-blocking initial seeding
+    }
+  };
+
+  const signInWithGoogle = async (): Promise<FirebaseUser | null> => {
+    try {
+      const result = await signInWithPopup(auth, googleProvider);
+      return result.user;
+    } catch (error: any) {
+      if (
+        error?.code === 'auth/popup-closed-by-user' ||
+        error?.code === 'auth/cancelled-popup-request'
+      ) {
+        // User closed or dismissed the popup window voluntarily
+        return null;
+      }
+      console.warn('Google Sign-In notice:', error?.message || error);
+      throw error;
+    }
+  };
+
+  const registerWithEmail = async (
+    email: string,
+    password: string,
+    fullName: string,
+    role: UserRole = 'CONTRIBUTOR'
+  ) => {
+    const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
+    const user = userCredential.user;
+    if (fullName.trim()) {
+      try {
+        await updateProfile(user, { displayName: fullName.trim() });
+      } catch {
+        // non-blocking
+      }
+    }
+    const isMasterAdmin =
+      user.email === 'yaredcotm@gmail.com' || user.email === 'admin@teklesawiros.org';
+    const profileRole: UserRole = isMasterAdmin ? 'ADMIN' : role;
+
+    const newProfile: UserProfile = {
+      id: user.uid,
+      fullName: fullName.trim() || user.email?.split('@')[0] || 'አባል',
+      email: user.email || '',
+      role: profileRole,
+      department: 'የተክለ ሣዊሮስ ሰንበት ት/ቤት ኪነጥበብ ክፍል',
+      joinedDate: '፳፻፲፮ ዓ.ም',
+      myWorksCount: 0,
+      mySubmissionsCount: 0,
+      myBookmarksCount: 0,
+    };
+    setCurrentUser(newProfile);
+
+    try {
+      await setDoc(
+        doc(db, 'users', user.uid),
+        {
+          id: user.uid,
+          fullName: newProfile.fullName,
+          email: newProfile.email,
+          role: newProfile.role,
+          department: newProfile.department,
+          joinedDate: newProfile.joinedDate,
+          bookmarks: [],
+        },
+        { merge: true }
+      );
+
+      if (isMasterAdmin) {
+        await setDoc(
+          doc(db, 'admins', user.uid),
+          {
+            email: user.email,
+            role: 'SUPER_ADMIN',
+          },
+          { merge: true }
+        );
+      }
+    } catch {
+      // non-blocking
+    }
+  };
+
+  const loginWithEmail = async (email: string, password: string) => {
+    await signInWithEmailAndPassword(auth, email.trim(), password);
+  };
+
+  const resetPasswordEmail = async (email: string) => {
+    await sendPasswordResetEmail(auth, email.trim());
+  };
+
+  const logout = async () => {
+    try {
+      await signOut(auth);
+      setCurrentUser({
+        id: 'u_default',
+        fullName: 'ተጠቃሚ (Guest)',
+        email: '',
+        role: 'MEMBER',
+        department: 'የተክለ ሣዊሮስ ሰንበት ት/ቤት ኪነጥበብ ክፍል',
+        joinedDate: '፳፻፲፮ ዓ.ም',
+        myWorksCount: 0,
+        mySubmissionsCount: 0,
+        myBookmarksCount: 0,
+      });
+    } catch (error) {
+      console.error('Sign-out failed:', error);
+    }
+  };
+
   const selectDivision = (div: SundaySchoolDivision) => {
     setSelectedDivision(div);
   };
@@ -964,13 +1411,33 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setCurrentUser((prev) => ({ ...prev, role }));
   };
 
-  const toggleBookmark = (workId: string) => {
-    setWorks((prev) =>
-      prev.map((work) => (work.id === workId ? { ...work, isBookmarked: !work.isBookmarked } : work))
-    );
+  const toggleBookmark = async (workId: string) => {
+    let nextBookmarks: string[] = [];
+    setWorks((prev) => {
+      const updated = prev.map((work) =>
+        work.id === workId ? { ...work, isBookmarked: !work.isBookmarked } : work
+      );
+      nextBookmarks = updated.filter((w) => w.isBookmarked).map((w) => w.id);
+      try {
+        localStorage.setItem('mezgebe_bookmarks', JSON.stringify(nextBookmarks));
+      } catch {
+        // ignore
+      }
+      return updated;
+    });
+
+    if (auth.currentUser) {
+      try {
+        await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+          bookmarks: nextBookmarks,
+        });
+      } catch {
+        // non-blocking
+      }
+    }
   };
 
-  const submitNewWork = (data: {
+  const submitNewWork = async (data: {
     title: string;
     categoryId: string;
     content: string;
@@ -981,12 +1448,31 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     hasPdfAttachment?: boolean;
     pdfFileName?: string | null;
     pdfFileSize?: string | null;
-  }) => {
+    pdfUrl?: string | null;
+    file?: File | null;
+  }): Promise<WorkItem> => {
+    setIsSyncing(true);
     const category = categories.find((c) => c.id === data.categoryId);
+    const newWorkId = `w_${Date.now()}`;
+    const authorId = auth.currentUser?.uid || currentUser.id;
+
+    let uploadedPdfUrl: string | null = data.pdfUrl || null;
+
+    // Upload file directly to Google Cloud Storage (Firebase Storage bucket)
+    if (data.file) {
+      try {
+        const fileRef = ref(storage, `works/${newWorkId}/${data.file.name}`);
+        const uploadSnapshot = await uploadBytes(fileRef, data.file);
+        uploadedPdfUrl = await getDownloadURL(uploadSnapshot.ref);
+      } catch (uploadError) {
+        console.warn('Storage upload warning:', uploadError);
+      }
+    }
+
     const newWork: WorkItem = {
-      id: `w_${Date.now()}`,
+      id: newWorkId,
       title: data.title,
-      writerId: currentUser.id,
+      writerId: authorId,
       writerName: data.writerName?.trim() || currentUser.fullName,
       categoryId: data.categoryId,
       categoryName: category?.nameAmharic || 'ስነ ጽሁፍ',
@@ -1000,49 +1486,146 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       tags: data.tags,
       isBookmarked: false,
       isFeatured: false,
-      hasPdfAttachment: data.hasPdfAttachment,
-      pdfFileName: data.pdfFileName,
-      pdfFileSize: data.pdfFileSize,
+      hasPdfAttachment: Boolean(data.hasPdfAttachment || data.file),
+      pdfFileName: data.file?.name || data.pdfFileName || null,
+      pdfFileSize: data.file ? `${(data.file.size / 1024).toFixed(0)} KB` : data.pdfFileSize || null,
+      pdfUrl: uploadedPdfUrl,
     };
+
+    // Optimistic UI update
     setWorks((prev) => [newWork, ...prev]);
     setCurrentUser((prev) => ({ ...prev, mySubmissionsCount: prev.mySubmissionsCount + 1 }));
+
+    // Persist to Cloud Firestore
+    try {
+      await setDoc(doc(db, 'works', newWork.id), newWork);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `works/${newWork.id}`);
+    } finally {
+      setIsSyncing(false);
+    }
+
     return newWork;
   };
 
-  const reviewWorkAction = (
+  const updateWork = async (
+    workId: string,
+    data: {
+      title?: string;
+      content?: string;
+      excerpt?: string;
+      tags?: string[];
+      categoryId?: string;
+      division?: SundaySchoolDivision;
+      file?: File | null;
+      hasPdfAttachment?: boolean;
+      pdfFileName?: string | null;
+      pdfFileSize?: string | null;
+    }
+  ): Promise<WorkItem> => {
+    setIsSyncing(true);
+    const existingWork = works.find((w) => w.id === workId);
+    if (!existingWork) throw new Error('Work not found');
+
+    let uploadedPdfUrl = existingWork.pdfUrl;
+
+    if (data.file) {
+      try {
+        const fileRef = ref(storage, `works/${workId}/${data.file.name}`);
+        const uploadSnapshot = await uploadBytes(fileRef, data.file);
+        uploadedPdfUrl = await getDownloadURL(uploadSnapshot.ref);
+      } catch (uploadError) {
+        console.warn('Storage upload warning:', uploadError);
+      }
+    }
+
+    const category = categories.find((c) => c.id === (data.categoryId || existingWork.categoryId));
+
+    const updatedWork: WorkItem = {
+      ...existingWork,
+      title: data.title ?? existingWork.title,
+      content: data.content ?? existingWork.content,
+      excerpt: data.excerpt ?? existingWork.excerpt,
+      tags: data.tags ?? existingWork.tags,
+      categoryId: data.categoryId ?? existingWork.categoryId,
+      categoryName: category?.nameAmharic || existingWork.categoryName,
+      division: data.division ?? existingWork.division,
+      status: 'UNDER_REVIEW', // Resubmit for review
+      version: (existingWork.version || 1) + 1,
+      hasPdfAttachment: data.file ? true : (data.hasPdfAttachment ?? existingWork.hasPdfAttachment),
+      pdfFileName: data.file?.name || (data.pdfFileName ?? existingWork.pdfFileName),
+      pdfFileSize: data.file ? `${(data.file.size / 1024).toFixed(0)} KB` : (data.pdfFileSize ?? existingWork.pdfFileSize),
+      pdfUrl: uploadedPdfUrl,
+    };
+
+    setWorks((prev) => prev.map((w) => (w.id === workId ? updatedWork : w)));
+
+    try {
+      await updateDoc(doc(db, 'works', workId), {
+        title: updatedWork.title,
+        content: updatedWork.content,
+        excerpt: updatedWork.excerpt,
+        tags: updatedWork.tags,
+        categoryId: updatedWork.categoryId,
+        categoryName: updatedWork.categoryName,
+        division: updatedWork.division,
+        status: updatedWork.status,
+        version: updatedWork.version,
+        hasPdfAttachment: updatedWork.hasPdfAttachment,
+        pdfFileName: updatedWork.pdfFileName,
+        pdfFileSize: updatedWork.pdfFileSize,
+        pdfUrl: updatedWork.pdfUrl,
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `works/${workId}`);
+    } finally {
+      setIsSyncing(false);
+    }
+
+    return updatedWork;
+  };
+
+  const reviewWorkAction = async (
     workId: string,
     newStatus: SubmissionStatus,
     feedback?: string | null,
     reviewerName: string = 'ቀሲስ ሰሎሞን (ገምጋሚ ኃላፊ)'
-  ) => {
+  ): Promise<void> => {
+    const updateData: Partial<WorkItem> = {
+      status: newStatus,
+      reviewerFeedback: feedback !== undefined ? feedback : null,
+      approvedBy: newStatus === 'APPROVED' ? reviewerName : null,
+      approvedDate: newStatus === 'APPROVED' ? 'የካቲት ፳፻፲፮ ዓ.ም' : null,
+    };
+
     setWorks((prev) =>
-      prev.map((work) => {
-        if (work.id === workId) {
-          return {
-            ...work,
-            status: newStatus,
-            reviewerFeedback: feedback !== undefined ? feedback : work.reviewerFeedback,
-            approvedBy: newStatus === 'APPROVED' ? reviewerName : work.approvedBy,
-            approvedDate: newStatus === 'APPROVED' ? 'የካቲት ፳፻፲፮ ዓ.ም' : work.approvedDate,
-          };
-        }
-        return work;
-      })
+      prev.map((work) => (work.id === workId ? { ...work, ...updateData } : work))
     );
+
+    try {
+      await updateDoc(doc(db, 'works', workId), updateData);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `works/${workId}`);
+    }
   };
 
-  const deleteWork = (workId: string) => {
+  const deleteWork = async (workId: string): Promise<void> => {
     setWorks((prev) => prev.filter((w) => w.id !== workId));
+    try {
+      await deleteDoc(doc(db, 'works', workId));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `works/${workId}`);
+    }
   };
 
-  const addMember = (data: {
+  const addMember = async (data: {
     fullName: string;
     duty: MemberDuty;
     phone: string;
     spiritualTitle: string;
     department: string;
     bio: string;
-  }) => {
+  }): Promise<ChurchMember> => {
     const newMember: ChurchMember = {
       id: `m_${Date.now()}`,
       fullName: data.fullName,
@@ -1054,15 +1637,28 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       assignedWorksCount: 0,
       bio: data.bio,
     };
+
     setMembers((prev) => [newMember, ...prev]);
+
+    try {
+      await setDoc(doc(db, 'members', newMember.id), newMember);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `members/${newMember.id}`);
+    }
+
     return newMember;
   };
 
-  const deleteMember = (memberId: string) => {
+  const deleteMember = async (memberId: string): Promise<void> => {
     setMembers((prev) => prev.filter((m) => m.id !== memberId));
+    try {
+      await deleteDoc(doc(db, 'members', memberId));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `members/${memberId}`);
+    }
   };
 
-  const addEvent = (data: {
+  const addEvent = async (data: {
     title: string;
     dateAmharic: string;
     timeAmharic: string;
@@ -1072,7 +1668,7 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     organizer: string;
     recurrence?: ProgramRecurrence;
     division?: SundaySchoolDivision | null;
-  }) => {
+  }): Promise<CulturalEvent> => {
     const newEvent: CulturalEvent = {
       id: `prog_${Date.now()}`,
       title: data.title,
@@ -1086,42 +1682,77 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       division: data.division || null,
       assignments: [],
     };
+
     setEvents((prev) => [newEvent, ...prev]);
+
+    try {
+      await setDoc(doc(db, 'events', newEvent.id), newEvent);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `events/${newEvent.id}`);
+    }
+
     return newEvent;
   };
 
-  const deleteEvent = (eventId: string) => {
+  const deleteEvent = async (eventId: string): Promise<void> => {
     setEvents((prev) => prev.filter((e) => e.id !== eventId));
+    try {
+      await deleteDoc(doc(db, 'events', eventId));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `events/${eventId}`);
+    }
   };
 
-  const addAssignmentToProgram = (eventId: string, assignment: ProgramAssignment) => {
-    setEvents((prev) =>
-      prev.map((ev) => {
-        if (ev.id === eventId) {
-          return {
-            ...ev,
-            assignments: [...ev.assignments, assignment],
-          };
-        }
-        return ev;
-      })
-    );
+  const addAssignmentToProgram = async (eventId: string, assignment: ProgramAssignment): Promise<void> => {
+    const updatedEvents = events.map((ev) => {
+      if (ev.id === eventId) {
+        return {
+          ...ev,
+          assignments: [...ev.assignments, assignment],
+        };
+      }
+      return ev;
+    });
+
+    setEvents(updatedEvents);
+
+    const targetEvent = updatedEvents.find((e) => e.id === eventId);
+    if (targetEvent) {
+      try {
+        await updateDoc(doc(db, 'events', eventId), {
+          assignments: targetEvent.assignments,
+        });
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, `events/${eventId}`);
+      }
+    }
   };
 
-  const toggleAssignmentCompletion = (eventId: string, assignmentId: string) => {
-    setEvents((prev) =>
-      prev.map((ev) => {
-        if (ev.id === eventId) {
-          return {
-            ...ev,
-            assignments: ev.assignments.map((asgn) =>
-              asgn.id === assignmentId ? { ...asgn, isCompleted: !asgn.isCompleted } : asgn
-            ),
-          };
-        }
-        return ev;
-      })
-    );
+  const toggleAssignmentCompletion = async (eventId: string, assignmentId: string): Promise<void> => {
+    const updatedEvents = events.map((ev) => {
+      if (ev.id === eventId) {
+        return {
+          ...ev,
+          assignments: ev.assignments.map((asgn) =>
+            asgn.id === assignmentId ? { ...asgn, isCompleted: !asgn.isCompleted } : asgn
+          ),
+        };
+      }
+      return ev;
+    });
+
+    setEvents(updatedEvents);
+
+    const targetEvent = updatedEvents.find((e) => e.id === eventId);
+    if (targetEvent) {
+      try {
+        await updateDoc(doc(db, 'events', eventId), {
+          assignments: targetEvent.assignments,
+        });
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, `events/${eventId}`);
+      }
+    }
   };
 
   const playTrack = (track: LiturgicalAudioTrack) => {
@@ -1167,18 +1798,36 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
         writers,
         members,
         events,
+        activeDepartment,
+        setActiveDepartment,
+        departmentsList,
+        addDepartment,
+        pdfPackages: SUNDAY_PLAN_PDF_PACKAGES,
+        childrenAnnualPlan: CHILDREN_ANNUAL_PLAN_2019,
+        maekelawiyanAnnualPlan: MAEKELAWIYAN_ANNUAL_PLAN_2019,
+        dailyPlanSheets,
+        updateDailyPlanSheet,
         selectedDivision,
         currentUser,
+        firebaseUser,
+        isAuthReady,
+        isSyncing,
         themeMode,
         audioTracks,
         currentAudioTrack,
         isAudioPlaying,
         audioProgress,
+        signInWithGoogle,
+        registerWithEmail,
+        loginWithEmail,
+        resetPasswordEmail,
+        logout,
         selectDivision,
         toggleThemeMode,
         setUserRole,
         toggleBookmark,
         submitNewWork,
+        updateWork,
         reviewWorkAction,
         deleteWork,
         addMember,
