@@ -1429,8 +1429,12 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return () => unsubscribe();
   }, []);
 
-  // 5. Real-time Firestore synchronization for Department Memberships
+  // 5. Real-time Firestore synchronization for Department Memberships (Authenticated only)
   useEffect(() => {
+    if (!isAuthReady || !firebaseUser) {
+      return;
+    }
+
     const membershipsCollectionRef = collection(db, 'department_memberships');
     const unsubscribe = onSnapshot(
       membershipsCollectionRef,
@@ -1456,10 +1460,14 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
 
     return () => unsubscribe();
-  }, []);
+  }, [isAuthReady, firebaseUser]);
 
-  // 6. Real-time Firestore synchronization for Schedule Assignments
+  // 6. Real-time Firestore synchronization for Schedule Assignments (Authenticated only)
   useEffect(() => {
+    if (!isAuthReady || !firebaseUser) {
+      return;
+    }
+
     const assignmentsCollectionRef = collection(db, 'schedule_assignments');
     const unsubscribe = onSnapshot(
       assignmentsCollectionRef,
@@ -1485,10 +1493,14 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
 
     return () => unsubscribe();
-  }, []);
+  }, [isAuthReady, firebaseUser]);
 
-  // 7. Real-time Firestore synchronization for Department Notifications
+  // 7. Real-time Firestore synchronization for Department Notifications (Authenticated only)
   useEffect(() => {
+    if (!isAuthReady || !firebaseUser) {
+      return;
+    }
+
     const notificationsCollectionRef = collection(db, 'department_notifications');
     const unsubscribe = onSnapshot(
       notificationsCollectionRef,
@@ -1514,7 +1526,7 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
 
     return () => unsubscribe();
-  }, []);
+  }, [isAuthReady, firebaseUser]);
 
   // Seed initial church data to Cloud Firestore if empty
   const seedInitialFirestoreData = async () => {
@@ -1528,14 +1540,16 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       for (const ev of INITIAL_EVENTS) {
         await setDoc(doc(db, 'events', ev.id), ev, { merge: true });
       }
-      for (const mem of INITIAL_DEPARTMENT_MEMBERSHIPS) {
-        await setDoc(doc(db, 'department_memberships', mem.id), mem, { merge: true });
-      }
-      for (const asgn of INITIAL_SCHEDULE_ASSIGNMENTS) {
-        await setDoc(doc(db, 'schedule_assignments', asgn.id), asgn, { merge: true });
-      }
-      for (const notif of INITIAL_DEPARTMENT_NOTIFICATIONS) {
-        await setDoc(doc(db, 'department_notifications', notif.id), notif, { merge: true });
+      if (firebaseUser) {
+        for (const mem of INITIAL_DEPARTMENT_MEMBERSHIPS) {
+          await setDoc(doc(db, 'department_memberships', mem.id), mem, { merge: true });
+        }
+        for (const asgn of INITIAL_SCHEDULE_ASSIGNMENTS) {
+          await setDoc(doc(db, 'schedule_assignments', asgn.id), asgn, { merge: true });
+        }
+        for (const notif of INITIAL_DEPARTMENT_NOTIFICATIONS) {
+          await setDoc(doc(db, 'department_notifications', notif.id), notif, { merge: true });
+        }
       }
     } catch {
       // Non-blocking initial seeding

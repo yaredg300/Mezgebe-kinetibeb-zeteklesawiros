@@ -324,6 +324,10 @@ export const AppContent: React.FC = () => {
                         onOpenDepartmentsHub={() => setShowDepartmentsModal(true)}
                         onSwitchToKinetibeb={() => setActiveDepartment('kinetibeb')}
                         onSwitchToEhudMerhaGibir={() => setActiveDepartment('ehud_merha_gibir')}
+                        onNavigateToArchive={() => handleTabSelected('ARCHIVE')}
+                        onNavigateToSearch={() => handleTabSelected('SEARCH')}
+                        onNavigateToEvents={() => handleTabSelected('EVENTS')}
+                        onNavigateToProfile={() => handleTabSelected('PROFILE')}
                       />
                     )
                   )}

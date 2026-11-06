@@ -1,14 +1,25 @@
 import React, { useState, useMemo } from 'react';
 import { useArchive } from '../context/ArchiveContext';
-import { WorkItem, SundaySchoolDivision, SundaySchoolDepartment, DIVISIONS } from '../types';
+import { WorkItem, SundaySchoolDivision, SundaySchoolDepartment, DIVISIONS, WorkCategory } from '../types';
 import { WorkCard } from '../components/Cards';
 import { QuickWorkPreviewModal } from '../components/LiturgicalAudioComponents';
-import { Search, SlidersHorizontal, BookOpen, Layers, X } from 'lucide-react';
+import { Search, SlidersHorizontal, BookOpen, Layers, X, Sparkles, Filter } from 'lucide-react';
+import { getDepartmentCategories, getAllDepartmentCategories } from '../data/departmentCategories';
 
 interface SearchScreenProps {
   onSelectWork: (workId: string) => void;
   onSelectCategory: (categoryId: string) => void;
 }
+
+const DEPARTMENT_QUICK_KEYWORDS: Record<string, string[]> = {
+  kinetibeb: ['ግጥም', 'ቲያትር', 'መነባንብ', 'ስክሪፕት', 'ብራና'],
+  ehud_merha_gibir: ['2019 ዕቅድ', 'የእሁድ ሰሌዳ', 'አዘጋጆች', 'የዕለት ሉህ', 'ተረኛ'],
+  education: ['ሞጁል', 'ፈተና', 'ነገረ መለኮት', 'መጽሐፍ ቅዱስ', 'ስርዓተ ቤተክርስቲያን'],
+  mezmur: ['ቅዱስ ያሬድ', 'ድጓ', 'በገና', 'የበዓላት መዝሙር', 'ማኅሌት'],
+  records: ['ቆጠራ', 'መገኘት', 'ስነ-ስርዓት', 'የአባላት ምዝገባ', 'ደንብ'],
+  media: ['ማስታወቂያ', 'ዜና', 'መጽሔት', 'ፎቶግራፍ', 'ቪዲዮ'],
+  finance: ['ፕሮጀክት', 'ሁለገብ አዳራሽ', 'በጎ አድራጎት', 'ሒሳብ', 'ባዛር'],
+};
 
 export const SearchScreen: React.FC<SearchScreenProps> = ({
   onSelectWork,
@@ -16,7 +27,6 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
 }) => {
   const {
     works,
-    categories,
     selectedDivision,
     departmentsList,
     activeDepartment,
@@ -32,9 +42,32 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
   );
   const [previewWork, setPreviewWork] = useState<WorkItem | null>(null);
 
+  // Active department metadata
+  const activeDepartmentInfo = departmentsList.find((d) => d.id === departmentFilter);
+
+  // Department-specific categories
+  const departmentCategories: WorkCategory[] = useMemo(() => {
+    return departmentFilter === 'ALL'
+      ? getAllDepartmentCategories()
+      : getDepartmentCategories(departmentFilter);
+  }, [departmentFilter]);
+
+  // Quick keywords for the selected department
+  const quickKeywords = useMemo(() => {
+    if (departmentFilter !== 'ALL' && DEPARTMENT_QUICK_KEYWORDS[departmentFilter]) {
+      return DEPARTMENT_QUICK_KEYWORDS[departmentFilter];
+    }
+    return ['ግጥም', 'ትምህርት', 'መዝሙር', 'እሁድ ዕቅድ', 'ስነ-ስርዓት', 'ሚዲያ', 'ልማት'];
+  }, [departmentFilter]);
+
+  const handleDepartmentChange = (deptId: SundaySchoolDepartment | 'ALL') => {
+    setDepartmentFilter(deptId);
+    setSelectedCategoryFilter('ALL');
+  };
+
   const filteredWorks = useMemo(() => {
     return works.filter((w) => {
-      // Department filter
+      // 1. Department filter
       if (departmentFilter !== 'ALL') {
         const matchesDept = w.departmentId
           ? w.departmentId === departmentFilter
@@ -42,17 +75,23 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
         if (!matchesDept) return false;
       }
 
-      // Division filter
+      // 2. Division filter
       if (divisionFilter !== 'ALL' && w.division !== divisionFilter) {
         return false;
       }
 
-      // Category filter
-      if (selectedCategoryFilter !== 'ALL' && w.categoryId !== selectedCategoryFilter) {
-        return false;
+      // 3. Category filter
+      if (selectedCategoryFilter !== 'ALL') {
+        const catObj = departmentCategories.find((c) => c.id === selectedCategoryFilter);
+        const matchesCat =
+          w.categoryId === selectedCategoryFilter ||
+          (catObj &&
+            (w.categoryName.toLowerCase().includes(catObj.nameAmharic.toLowerCase()) ||
+              catObj.nameAmharic.toLowerCase().includes(w.categoryName.toLowerCase())));
+        if (!matchesCat) return false;
       }
 
-      // Search query (title, writerName, content, tags, categoryName, departmentTitle)
+      // 4. Search query
       if (!searchQuery.trim()) return true;
 
       const q = searchQuery.toLowerCase().trim();
@@ -65,27 +104,29 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
 
       return matchTitle || matchAuthor || matchContent || matchCategory || matchDept || matchTags;
     });
-  }, [works, searchQuery, departmentFilter, divisionFilter, selectedCategoryFilter]);
-
-  const activeDepartmentInfo = departmentsList.find((d) => d.id === departmentFilter);
+  }, [works, searchQuery, departmentFilter, divisionFilter, selectedCategoryFilter, departmentCategories]);
 
   return (
-    <div className="min-h-full pb-28 md:pb-16 px-4 md:px-8 max-w-6xl mx-auto pt-4">
+    <div className="min-h-full pb-28 md:pb-16 px-4 md:px-8 max-w-6xl mx-auto pt-4 font-ethiopic">
       {/* Search Input Bar */}
-      <div className="mb-4">
+      <div className="mb-3">
         <div className="relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="በርዕስ፣ በደራሲ፣ በይዘት፣ በክፍል ወይም በስነ-ጽሁፍ መለያ ፈልግ..."
+            placeholder={
+              departmentFilter === 'ALL'
+                ? 'በሁሉም ክፍሎች ሰነዶች፣ ደራሲያን፣ ማህደሮችና መለያዎች ፈልግ...'
+                : `በ«${activeDepartmentInfo?.shortTitleAmharic || activeDepartmentInfo?.titleAmharic}» ውስጥ ፈልግ...`
+            }
             className="w-full pl-12 pr-10 py-3.5 rounded-2xl bg-white dark:bg-[#111D30] border border-[#B88500]/30 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#B88500] text-slate-900 dark:text-slate-100 text-sm md:text-base font-ethiopic"
           />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400"
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
@@ -93,16 +134,40 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
         </div>
       </div>
 
-      {/* 1. Department Filter Bar (የሰንበት ትምህርት ቤት ክፍላት) */}
+      {/* Quick Search Keywords for the Active Department */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-2 mb-2 scrollbar-none text-xs">
+        <span className="text-slate-400 shrink-0 flex items-center gap-1 text-[11px]">
+          <Sparkles className="w-3 h-3 text-[#B88500]" />
+          ፈጣን ቃላት፦
+        </span>
+        {quickKeywords.map((kw) => (
+          <button
+            key={kw}
+            type="button"
+            onClick={() => setSearchQuery(kw)}
+            className="px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-[#B88500]/20 hover:text-[#B88500] text-[11px] whitespace-nowrap transition-colors cursor-pointer"
+          >
+            #{kw}
+          </button>
+        ))}
+      </div>
+
+      {/* 1. Department Filter Ribbon */}
       <div className="mb-3 space-y-1">
-        <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 font-medium px-1">
-          <Layers className="w-3.5 h-3.5 text-[#0C4A9E] dark:text-[#7FAFFF]" />
-          <span>የሰንበት ት/ቤት ክፍል፦</span>
+        <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-medium px-1">
+          <span className="flex items-center gap-1.5">
+            <Layers className="w-3.5 h-3.5 text-[#0C4A9E] dark:text-[#7FAFFF]" />
+            <span>የሰንበት ት/ቤት ክፍል ይምረጡ፦</span>
+          </span>
+          <span className="text-[11px] text-slate-500">
+            {departmentFilter === 'ALL' ? 'ሁሉም ክፍሎች' : activeDepartmentInfo?.titleAmharic}
+          </span>
         </div>
+
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
           <button
-            onClick={() => setDepartmentFilter('ALL')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-ethiopic font-bold whitespace-nowrap transition-all ${
+            onClick={() => handleDepartmentChange('ALL')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-ethiopic font-bold whitespace-nowrap transition-all cursor-pointer ${
               departmentFilter === 'ALL'
                 ? 'bg-[#0C4A9E] text-white shadow-sm'
                 : 'bg-white dark:bg-[#111D30] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-[#0C4A9E]'
@@ -110,6 +175,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
           >
             ሁሉም ክፍላት ({works.length})
           </button>
+
           {departmentsList.map((dept) => {
             const isSelected = departmentFilter === dept.id;
             const count = works.filter((w) =>
@@ -119,8 +185,8 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
             return (
               <button
                 key={dept.id}
-                onClick={() => setDepartmentFilter(dept.id)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-ethiopic font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                onClick={() => handleDepartmentChange(dept.id)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-ethiopic font-bold whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
                   isSelected
                     ? 'text-white shadow-sm'
                     : 'bg-white dark:bg-[#111D30] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-[#B88500]'
@@ -135,7 +201,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
         </div>
       </div>
 
-      {/* 2. Age Division Filter Bar (የዕድሜ እርከን) */}
+      {/* 2. Age Division Filter Bar */}
       <div className="mb-3 space-y-1">
         <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 font-medium px-1">
           <SlidersHorizontal className="w-3.5 h-3.5 text-[#B88500]" />
@@ -144,7 +210,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
           <button
             onClick={() => setDivisionFilter('ALL')}
-            className={`px-3 py-1 rounded-xl text-xs font-ethiopic whitespace-nowrap transition-all ${
+            className={`px-3 py-1 rounded-xl text-xs font-ethiopic whitespace-nowrap transition-all cursor-pointer ${
               divisionFilter === 'ALL'
                 ? 'bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900 font-bold'
                 : 'bg-white dark:bg-[#111D30] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800'
@@ -154,7 +220,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
           </button>
           <button
             onClick={() => setDivisionFilter('children')}
-            className={`px-3 py-1 rounded-xl text-xs font-ethiopic whitespace-nowrap transition-all ${
+            className={`px-3 py-1 rounded-xl text-xs font-ethiopic whitespace-nowrap transition-all cursor-pointer ${
               divisionFilter === 'children'
                 ? 'bg-[#F5B800] text-slate-900 font-bold'
                 : 'bg-white dark:bg-[#111D30] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800'
@@ -164,7 +230,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
           </button>
           <button
             onClick={() => setDivisionFilter('intermediates')}
-            className={`px-3 py-1 rounded-xl text-xs font-ethiopic whitespace-nowrap transition-all ${
+            className={`px-3 py-1 rounded-xl text-xs font-ethiopic whitespace-nowrap transition-all cursor-pointer ${
               divisionFilter === 'intermediates'
                 ? 'bg-[#0C4A9E] text-white font-bold'
                 : 'bg-white dark:bg-[#111D30] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800'
@@ -174,7 +240,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
           </button>
           <button
             onClick={() => setDivisionFilter('youth')}
-            className={`px-3 py-1 rounded-xl text-xs font-ethiopic whitespace-nowrap transition-all ${
+            className={`px-3 py-1 rounded-xl text-xs font-ethiopic whitespace-nowrap transition-all cursor-pointer ${
               divisionFilter === 'youth'
                 ? 'bg-[#8B0000] text-white font-bold'
                 : 'bg-white dark:bg-[#111D30] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800'
@@ -185,31 +251,42 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
         </div>
       </div>
 
-      {/* 3. Category Horizontal Filter Pills */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-3 scrollbar-none mb-4">
-        <button
-          onClick={() => setSelectedCategoryFilter('ALL')}
-          className={`px-3 py-1 rounded-lg text-xs font-ethiopic whitespace-nowrap transition-all ${
-            selectedCategoryFilter === 'ALL'
-              ? 'bg-[#B88500] text-white font-bold shadow-2xs'
-              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-[#B88500]/20'
-          }`}
-        >
-          ሁሉም ዘርፎች
-        </button>
-        {categories.map((cat) => (
+      {/* 3. Department-Specific Category Filter Pills */}
+      <div className="mb-4 space-y-1">
+        <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 font-medium px-1">
+          <Filter className="w-3.5 h-3.5 text-[#B88500]" />
+          <span>
+            {departmentFilter === 'ALL'
+              ? 'የመዝገብ ዘርፎች ማጣሪያ፦'
+              : `የ«${activeDepartmentInfo?.shortTitleAmharic}» ዘርፎች፦`}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-2 scrollbar-none">
           <button
-            key={cat.id}
-            onClick={() => setSelectedCategoryFilter(cat.id)}
-            className={`px-3 py-1 rounded-lg text-xs font-ethiopic whitespace-nowrap transition-all ${
-              selectedCategoryFilter === cat.id
+            onClick={() => setSelectedCategoryFilter('ALL')}
+            className={`px-3 py-1 rounded-lg text-xs font-ethiopic whitespace-nowrap transition-all cursor-pointer ${
+              selectedCategoryFilter === 'ALL'
                 ? 'bg-[#B88500] text-white font-bold shadow-2xs'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-[#B88500]/20'
             }`}
           >
-            {cat.nameAmharic}
+            ሁሉም ዘርፎች
           </button>
-        ))}
+          {departmentCategories.map((cat) => (
+            <button
+              key={cat.id}
+              onClick={() => setSelectedCategoryFilter(cat.id)}
+              className={`px-3 py-1 rounded-lg text-xs font-ethiopic whitespace-nowrap transition-all cursor-pointer ${
+                selectedCategoryFilter === cat.id
+                  ? 'bg-[#B88500] text-white font-bold shadow-2xs'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-[#B88500]/20'
+              }`}
+            >
+              {cat.nameAmharic}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Result counter & active department indication */}
@@ -217,11 +294,12 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
         <span className="text-xs text-slate-600 dark:text-slate-400 font-ethiopic">
           የተገኙ ስራዎች: <strong className="text-slate-900 dark:text-slate-100 font-bold">{filteredWorks.length}</strong>
           {departmentFilter !== 'ALL' && activeDepartmentInfo && (
-            <span className="ml-1.5 text-[#0C4A9E] dark:text-[#7FAFFF]">
+            <span className="ml-1.5 text-[#0C4A9E] dark:text-[#7FAFFF] font-bold">
               (በ«{activeDepartmentInfo.shortTitleAmharic || activeDepartmentInfo.titleAmharic}» ውስጥ)
             </span>
           )}
         </span>
+
         {(searchQuery ||
           selectedCategoryFilter !== 'ALL' ||
           divisionFilter !== 'ALL' ||
@@ -233,7 +311,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
               setDivisionFilter('ALL');
               setDepartmentFilter('ALL');
             }}
-            className="text-xs text-[#8B0000] hover:underline font-medium"
+            className="text-xs text-[#8B0000] hover:underline font-medium cursor-pointer"
           >
             ማጣሪያዎችን አጥፋ
           </button>
@@ -259,9 +337,20 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({
           <h3 className="font-serif-ethiopic text-base font-bold text-slate-800 dark:text-slate-200 mb-1">
             ምንም የተገኘ ስራ የለም
           </h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-ethiopic">
-            የተለየ ርዕስ፣ የደራሲ ስም ወይም ማጣሪያዎችን ቀይረው ይሞክሩ።
+          <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-ethiopic mb-4">
+            {departmentFilter !== 'ALL'
+              ? `በ«${activeDepartmentInfo?.titleAmharic}» ውስጥ የተፈለገው ቃል አልተገኘም። ወደ ሁሉም ክፍላት በመቀየር ይፈልጉ።`
+              : 'የተለየ ርዕስ፣ የደራሲ ስም ወይም ማጣሪያዎችን ቀይረው ይሞክሩ።'}
           </p>
+          {departmentFilter !== 'ALL' && (
+            <button
+              type="button"
+              onClick={() => setDepartmentFilter('ALL')}
+              className="px-4 py-2 rounded-xl bg-[#0C4A9E] text-white text-xs font-bold hover:bg-[#072958] cursor-pointer"
+            >
+              በሁሉም ክፍላት ፈልግ
+            </button>
+          )}
         </div>
       )}
 

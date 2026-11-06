@@ -63,6 +63,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     setUserRole,
     works,
     members,
+    events,
     selectedDivision,
     themeMode,
     toggleThemeMode,
@@ -129,6 +130,24 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
       return true;
     }
     if (!m.departmentId && selectedDeptProfile === 'kinetibeb') return true;
+    return false;
+  });
+
+  const deptWorks = works.filter((w) =>
+    w.departmentId ? w.departmentId === selectedDeptProfile : selectedDeptProfile === 'kinetibeb'
+  );
+
+  const deptEvents = events.filter((ev) => {
+    if (ev.departmentId === selectedDeptProfile) return true;
+    if (
+      currentDeptInfo &&
+      ev.organizer &&
+      (ev.organizer.includes(currentDeptInfo.shortTitleAmharic) ||
+        ev.organizer.includes(currentDeptInfo.titleAmharic))
+    ) {
+      return true;
+    }
+    if (!ev.departmentId && selectedDeptProfile === 'kinetibeb') return true;
     return false;
   });
 
@@ -530,7 +549,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 
           {/* Department Profile Hero Card */}
           {currentDeptInfo && (
-            <div className="p-5 sm:p-6 rounded-2xl bg-white dark:bg-[#111D30] border-2 border-[#B88500]/40 shadow-md">
+            <div className="p-5 sm:p-6 rounded-2xl bg-white dark:bg-[#111D30] border-2 border-[#B88500]/40 shadow-md space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-3">
                   <div
@@ -566,13 +585,77 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                 </div>
               </div>
 
-              <div className="pt-4">
+              {/* Department Statistics Ribbon */}
+              <div className="grid grid-cols-3 gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/70 dark:border-slate-800 text-center">
+                <div>
+                  <div className="text-lg sm:text-xl font-bold font-serif-ethiopic text-[#0C4A9E] dark:text-[#7FAFFF]">
+                    {deptWorks.length}
+                  </div>
+                  <div className="text-[11px] text-slate-500">የተመዘገቡ ሰነዶች</div>
+                </div>
+                <div>
+                  <div className="text-lg sm:text-xl font-bold font-serif-ethiopic text-[#B88500] dark:text-[#FFD54F]">
+                    {deptEvents.length}
+                  </div>
+                  <div className="text-[11px] text-slate-500">የተያዙ መርሐ-ግብራት</div>
+                </div>
+                <div>
+                  <div className="text-lg sm:text-xl font-bold font-serif-ethiopic text-emerald-600 dark:text-emerald-400">
+                    {deptMembers.length}
+                  </div>
+                  <div className="text-[11px] text-slate-500">ንቁ አገልጋዮች</div>
+                </div>
+              </div>
+
+              {/* Mission & Purpose */}
+              <div>
                 <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
                   የክፍሉ ዓላማና አገልግሎት
                 </h4>
                 <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed font-serif-ethiopic">
                   {currentDeptInfo.descriptionAmharic}
                 </p>
+              </div>
+
+              {/* Quick Navigation and Activation Actions */}
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2.5">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveDepartment(selectedDeptProfile);
+                      onNavigateToEvents();
+                    }}
+                    className="px-3.5 py-1.5 rounded-xl bg-[#0C4A9E] text-white text-xs font-bold hover:bg-[#072958] transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>የክፍሉ መርሐ-ግብራት ({deptEvents.length})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveDepartment(selectedDeptProfile);
+                      // Switch to active department
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors flex items-center gap-1.5 cursor-pointer ${
+                      activeDepartment === selectedDeptProfile
+                        ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 text-emerald-700 dark:text-emerald-300'
+                        : 'bg-white dark:bg-[#111D30] border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-[#B88500]'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>
+                      {activeDepartment === selectedDeptProfile
+                        ? 'የአሁን ንቁ ክፍል ነው'
+                        : 'እንደ ዋና ክፍል ምረጥ'}
+                    </span>
+                  </button>
+                </div>
+
+                <span className="text-[11px] text-slate-400">
+                  ተክለ ሣዊሮስ ሰ/ት/ቤት • {currentDeptInfo.shortTitleAmharic}
+                </span>
               </div>
             </div>
           )}

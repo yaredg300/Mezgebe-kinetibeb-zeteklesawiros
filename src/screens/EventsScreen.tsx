@@ -56,7 +56,7 @@ export const EventsScreen: React.FC = () => {
   const [newProgTitle, setNewProgTitle] = useState('');
   const [newProgRecurrence, setNewProgRecurrence] = useState<ProgramRecurrence>('WEEKLY');
   const [newProgDeptId, setNewProgDeptId] = useState<SundaySchoolDepartment>(
-    activeDepartment || 'kinetibeb'
+    (selectedDeptFilter !== 'ALL' ? selectedDeptFilter : activeDepartment) || 'kinetibeb'
   );
   const [newProgDate, setNewProgDate] = useState('በየሳምንቱ እሁድ');
   const [newProgTime, setNewProgTime] = useState('ከቀኑ ፯:፴ እስከ ፱:፴');
@@ -68,7 +68,7 @@ export const EventsScreen: React.FC = () => {
   const [newMemberName, setNewMemberName] = useState('');
   const [newMemberDuty, setNewMemberDuty] = useState<MemberDuty>('WRITER');
   const [newMemberDeptId, setNewMemberDeptId] = useState<SundaySchoolDepartment>(
-    activeDepartment || 'kinetibeb'
+    (selectedDeptFilter !== 'ALL' ? selectedDeptFilter : activeDepartment) || 'kinetibeb'
   );
   const [newMemberPhone, setNewMemberPhone] = useState('');
   const [newMemberTitle, setNewMemberTitle] = useState('አባል');
@@ -210,6 +210,10 @@ export const EventsScreen: React.FC = () => {
           isAdmin && (
             <button
               onClick={() => {
+                if (selectedDeptFilter !== 'ALL') {
+                  setNewProgDeptId(selectedDeptFilter);
+                  setNewMemberDeptId(selectedDeptFilter);
+                }
                 if (activeMainTab === 'programs') setShowAddProgramModal(true);
                 else setShowAddMemberModal(true);
               }}

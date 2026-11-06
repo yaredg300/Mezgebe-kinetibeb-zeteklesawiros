@@ -46,6 +46,10 @@ interface DepartmentPortalScreenProps {
   onOpenDepartmentsHub: () => void;
   onSwitchToKinetibeb: () => void;
   onSwitchToEhudMerhaGibir: () => void;
+  onNavigateToArchive?: () => void;
+  onNavigateToSearch?: () => void;
+  onNavigateToEvents?: () => void;
+  onNavigateToProfile?: () => void;
 }
 
 // 1. Dashboard KPI & Metric Model
@@ -134,8 +138,12 @@ export const DepartmentPortalScreen: React.FC<DepartmentPortalScreenProps> = ({
   onOpenDepartmentsHub,
   onSwitchToKinetibeb,
   onSwitchToEhudMerhaGibir,
+  onNavigateToArchive,
+  onNavigateToSearch,
+  onNavigateToEvents,
+  onNavigateToProfile,
 }) => {
-  const { departmentsList, members, addMember } = useArchive();
+  const { departmentsList, members, addMember, setActiveDepartment } = useArchive();
 
   // Find info about current department
   const currentDept: DepartmentInfo =
@@ -1502,6 +1510,77 @@ export const DepartmentPortalScreen: React.FC<DepartmentPortalScreenProps> = ({
               </div>
             </div>
           </div>
+        </div>
+
+        {/* 4 Core Departmental Pillars Navigation Ribbon */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          <button
+            type="button"
+            onClick={() => {
+              setActiveDepartment(departmentId);
+              if (onNavigateToArchive) onNavigateToArchive();
+            }}
+            className="p-3 rounded-2xl bg-white dark:bg-[#111D30] border border-slate-200 dark:border-slate-800 hover:border-[#0C4A9E] shadow-2xs text-left transition-all cursor-pointer flex items-center gap-2.5 group"
+          >
+            <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-[#0C4A9E] dark:text-[#7FAFFF] group-hover:bg-[#0C4A9E] group-hover:text-white transition-colors">
+              <FolderOpen className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="text-xs font-bold text-slate-800 dark:text-slate-200">የክፍሉ መዝገብ</div>
+              <div className="text-[10px] text-slate-500">ሰነዶችና ቅርሶች</div>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveDepartment(departmentId);
+              if (onNavigateToSearch) onNavigateToSearch();
+            }}
+            className="p-3 rounded-2xl bg-white dark:bg-[#111D30] border border-slate-200 dark:border-slate-800 hover:border-[#B88500] shadow-2xs text-left transition-all cursor-pointer flex items-center gap-2.5 group"
+          >
+            <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-[#B88500] dark:text-[#FFD54F] group-hover:bg-[#B88500] group-hover:text-white transition-colors">
+              <Search className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="text-xs font-bold text-slate-800 dark:text-slate-200">በክፍሉ ፈልግ</div>
+              <div className="text-[10px] text-slate-500">ይዘቶችና ደራሲያን</div>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveDepartment(departmentId);
+              if (onNavigateToEvents) onNavigateToEvents();
+            }}
+            className="p-3 rounded-2xl bg-white dark:bg-[#111D30] border border-slate-200 dark:border-slate-800 hover:border-emerald-600 shadow-2xs text-left transition-all cursor-pointer flex items-center gap-2.5 group"
+          >
+            <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
+              <Calendar className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="text-xs font-bold text-slate-800 dark:text-slate-200">መርሐ ግብራት</div>
+              <div className="text-[10px] text-slate-500">ቀን መቁጠሪያና ዕቅድ</div>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveDepartment(departmentId);
+              if (onNavigateToProfile) onNavigateToProfile();
+            }}
+            className="p-3 rounded-2xl bg-white dark:bg-[#111D30] border border-slate-200 dark:border-slate-800 hover:border-purple-600 shadow-2xs text-left transition-all cursor-pointer flex items-center gap-2.5 group"
+          >
+            <div className="p-2 rounded-xl bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 group-hover:bg-purple-600 group-hover:text-white transition-colors">
+              <Users className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="text-xs font-bold text-slate-800 dark:text-slate-200">የክፍሉ መገለጫ</div>
+              <div className="text-[10px] text-slate-500">አባላትና አመራር</div>
+            </div>
+          </button>
         </div>
 
         {/* Navigation Tabs */}

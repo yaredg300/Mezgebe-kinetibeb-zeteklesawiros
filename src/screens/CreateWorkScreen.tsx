@@ -4,6 +4,7 @@ import { useArchive } from '../context/ArchiveContext';
 import { SundaySchoolDivision, DIVISIONS, SundaySchoolDepartment } from '../types';
 import { AppHeader } from '../components/AppHeader';
 import { ManuscriptBox, HaragDivider } from '../components/Ornaments';
+import { getDepartmentCategories } from '../data/departmentCategories';
 
 const SAMPLE_PRESETS = [
   {
@@ -67,6 +68,9 @@ export const CreateWorkScreen: React.FC<{
   const [departmentId, setDepartmentId] = useState<SundaySchoolDepartment>(
     existingWork?.departmentId || activeDepartment || 'kinetibeb'
   );
+
+  const availableCategories = getDepartmentCategories(departmentId);
+
   const [content, setContent] = useState(existingWork?.content || '');
   const [excerpt, setExcerpt] = useState(existingWork?.excerpt || '');
   const [tagText, setTagText] = useState(existingWork?.tags?.join(', ') || 'መንፈሳዊ, ተክለ ሣዊሮስ');
@@ -306,7 +310,14 @@ export const CreateWorkScreen: React.FC<{
                 </label>
                 <select
                   value={departmentId}
-                  onChange={(e) => setDepartmentId(e.target.value as SundaySchoolDepartment)}
+                  onChange={(e) => {
+                    const newDept = e.target.value as SundaySchoolDepartment;
+                    setDepartmentId(newDept);
+                    const newCats = getDepartmentCategories(newDept);
+                    if (newCats.length > 0 && !newCats.some((c) => c.id === categoryId)) {
+                      setCategoryId(newCats[0].id);
+                    }
+                  }}
                   className="w-full px-3.5 py-2 text-xs sm:text-sm rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
                 >
                   {departmentsList.map((d) => (
@@ -319,14 +330,14 @@ export const CreateWorkScreen: React.FC<{
 
               <div>
                 <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
-                  የኪነጥበብ ዘርፍ ምድብ *
+                  የመዝገብ ዘርፍ ምድብ (Category) *
                 </label>
                 <select
                   value={categoryId}
                   onChange={(e) => setCategoryId(e.target.value)}
                   className="w-full px-3.5 py-2 text-xs sm:text-sm rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
                 >
-                  {categories.map((c) => (
+                  {availableCategories.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.nameAmharic} ({c.nameEnglish})
                     </option>
