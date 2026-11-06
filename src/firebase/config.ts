@@ -1,11 +1,11 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
 
-// Initialize Firebase App
-export const app = initializeApp(firebaseConfig);
+// Initialize Firebase App safely (reuse existing app instance if already initialized to prevent duplicate app errors)
+export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
 // Initialize Firestore
 export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);

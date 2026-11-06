@@ -297,6 +297,189 @@
         }
       },
       "required": ["email", "role"]
+    },
+    "departmentMembership": {
+      "title": "DepartmentMembership",
+      "description": "User membership request and approval record for a specific department",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique key in format userId_departmentId",
+          "maxLength": 128
+        },
+        "userId": {
+          "type": "string",
+          "description": "Auth UID of the applicant",
+          "maxLength": 128
+        },
+        "userEmail": {
+          "type": "string",
+          "description": "Applicant email address",
+          "maxLength": 150
+        },
+        "userName": {
+          "type": "string",
+          "description": "Applicant full name",
+          "maxLength": 150
+        },
+        "departmentId": {
+          "type": "string",
+          "description": "ID of the target department",
+          "maxLength": 64
+        },
+        "departmentName": {
+          "type": "string",
+          "description": "Title of the target department",
+          "maxLength": 150
+        },
+        "role": {
+          "type": "string",
+          "description": "Department assigned role",
+          "enum": ["MEMBER", "CONTRIBUTOR", "REVIEWER", "EDITOR", "ADMIN"]
+        },
+        "status": {
+          "type": "string",
+          "description": "Approval status",
+          "enum": ["PENDING", "APPROVED", "REJECTED", "SUSPENDED"]
+        },
+        "rejectionReason": {
+          "type": "string",
+          "description": "Reason provided by administrator if rejected",
+          "maxLength": 1000
+        },
+        "approvedBy": {
+          "type": "string",
+          "description": "UID of approving administrator",
+          "maxLength": 128
+        },
+        "approvedByName": {
+          "type": "string",
+          "description": "Full name of approving administrator",
+          "maxLength": 150
+        },
+        "approvedAt": {
+          "type": "string",
+          "description": "Timestamp of approval",
+          "maxLength": 50
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Request creation timestamp",
+          "maxLength": 50
+        }
+      },
+      "required": ["id", "userId", "userEmail", "userName", "departmentId", "role", "status"]
+    },
+    "scheduleAssignment": {
+      "title": "ScheduleTaskAssignment",
+      "description": "Task assignment directly connected to liturgical or departmental schedule items",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Assignment unique identifier",
+          "maxLength": 128
+        },
+        "departmentId": {
+          "type": "string",
+          "description": "Department ID owning the assignment",
+          "maxLength": 64
+        },
+        "scheduleProgramId": {
+          "type": "string",
+          "description": "Related program plan ID",
+          "maxLength": 128
+        },
+        "agendaSlotTitle": {
+          "type": "string",
+          "description": "Specific agenda slot or liturgy item",
+          "maxLength": 200
+        },
+        "title": {
+          "type": "string",
+          "description": "Task title",
+          "maxLength": 250
+        },
+        "instructions": {
+          "type": "string",
+          "description": "Administrator instructions for the assignees",
+          "maxLength": 2000
+        },
+        "responsibleLeadId": {
+          "type": "string",
+          "description": "UID of designated lead assignee",
+          "maxLength": 128
+        },
+        "responsibleLeadName": {
+          "type": "string",
+          "description": "Name of designated lead assignee",
+          "maxLength": 150
+        },
+        "programDate": {
+          "type": "string",
+          "description": "Ethiopic date of program",
+          "maxLength": 100
+        },
+        "deadlineDate": {
+          "type": "string",
+          "description": "Preparation/submission deadline",
+          "maxLength": 100
+        },
+        "status": {
+          "type": "string",
+          "description": "Workflow progress state",
+          "enum": ["ASSIGNED", "ACCEPTED", "IN_PROGRESS", "SUBMITTED", "COMPLETED", "REVISION_REQUESTED", "CANCELLED"]
+        },
+        "adminFeedback": {
+          "type": "string",
+          "description": "Feedback or revision instructions from administrator",
+          "maxLength": 2000
+        }
+      },
+      "required": ["id", "departmentId", "scheduleProgramId", "agendaSlotTitle", "title", "responsibleLeadId", "status"]
+    },
+    "departmentNotification": {
+      "title": "DepartmentNotification",
+      "description": "Department and membership workflow notification",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Notification ID",
+          "maxLength": 128
+        },
+        "departmentId": {
+          "type": "string",
+          "description": "Target department ID",
+          "maxLength": 64
+        },
+        "targetUserId": {
+          "type": "string",
+          "description": "Recipient UID or empty for broadcast",
+          "maxLength": 128
+        },
+        "title": {
+          "type": "string",
+          "description": "Notification title",
+          "maxLength": 200
+        },
+        "message": {
+          "type": "string",
+          "description": "Notification body message",
+          "maxLength": 2000
+        },
+        "type": {
+          "type": "string",
+          "description": "Event type",
+          "enum": ["MEMBERSHIP_STATUS", "ASSIGNMENT_CREATED", "ASSIGNMENT_SUBMITTED", "REVISION_REQUESTED", "ASSIGNMENT_COMPLETED", "ANNOUNCEMENT"]
+        },
+        "isRead": {
+          "type": "boolean",
+          "description": "Read flag"
+        }
+      },
+      "required": ["id", "departmentId", "title", "message", "type", "isRead"]
     }
   },
   "firestore": {
@@ -319,6 +502,22 @@
     "/admins/{adminId}": {
       "schema": "admin",
       "description": "Administrator authority registry"
+    },
+    "/departments/{deptId}": {
+      "schema": "department",
+      "description": "Sunday school departments configuration"
+    },
+    "/department_memberships/{membershipId}": {
+      "schema": "departmentMembership",
+      "description": "Department membership requests and approvals"
+    },
+    "/schedule_assignments/{assignmentId}": {
+      "schema": "scheduleAssignment",
+      "description": "Direct schedule-to-member task assignments"
+    },
+    "/department_notifications/{notificationId}": {
+      "schema": "departmentNotification",
+      "description": "Workflow notifications for department members"
     }
   }
 }

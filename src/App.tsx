@@ -19,6 +19,9 @@ import { ProfileScreen } from './screens/ProfileScreen';
 import { EhudMerhaGibirScreen } from './screens/EhudMerhaGibirScreen';
 import { DepartmentGatewayScreen } from './screens/DepartmentGatewayScreen';
 import { DepartmentPortalScreen } from './screens/DepartmentPortalScreen';
+import { WaitingForApprovalScreen } from './screens/WaitingForApprovalScreen';
+import { DepartmentAdminWorkspace } from './screens/DepartmentAdminWorkspace';
+import { DepartmentMemberWorkspace } from './screens/DepartmentMemberWorkspace';
 
 // Navigation & Overlays
 import { AppHeader } from './components/AppHeader';
@@ -39,7 +42,7 @@ type DeepScreen =
   | { type: 'create_work'; editWorkId?: string }
   | { type: 'reviewer_queue' };
 
-const AppContent: React.FC = () => {
+export const AppContent: React.FC = () => {
   const {
     currentAudioTrack,
     isAudioPlaying,
@@ -50,7 +53,14 @@ const AppContent: React.FC = () => {
     selectDivision,
     activeDepartment,
     setActiveDepartment,
+    isDeptAdmin,
+    hasPendingApproval,
+    isSuperAdmin,
+    approvedDepartmentsList,
+    activeMembership,
   } = useArchive();
+
+  const [workspaceMode, setWorkspaceMode] = useState<'WORKSPACE' | 'HERITAGE'>('WORKSPACE');
 
   // Root authentication / onboarding flow with persistence check
   const [flow, setFlow] = useState<AppFlow>(() => {
@@ -189,7 +199,17 @@ const AppContent: React.FC = () => {
     );
   }
 
-  // 5. Main Application Shell
+  // 5. Waiting For Department Approval Gate (for pending/rejected/suspended users)
+  if (flow === 'main' && hasPendingApproval) {
+    return (
+      <WaitingForApprovalScreen
+        onLogoutClick={() => setFlow('login')}
+        onExploreOtherDepartment={(dept) => setActiveDepartment(dept)}
+      />
+    );
+  }
+
+  // 6. Main Application Shell
   return (
     <div className="min-h-screen bg-[#F9FAFD] dark:bg-[#0B1320] text-slate-800 dark:text-slate-100 flex flex-col md:flex-row">
       {/* Desktop Sidebar (visible on md: screens and above) */}
@@ -242,28 +262,72 @@ const AppContent: React.FC = () => {
           {deepScreen.type === 'none' && (
             <>
               {activeTab === 'HOME' && (
-                activeDepartment === 'ehud_merha_gibir' ? (
-                  <EhudMerhaGibirScreen
-                    onSwitchToKinetibeb={() => setActiveDepartment('kinetibeb')}
-                    onOpenWorkClick={handleOpenWork}
-                    onOpenDepartmentsHub={() => setShowDepartmentsModal(true)}
-                  />
-                ) : activeDepartment === 'kinetibeb' ? (
-                  <HomeScreen
-                    onWorkClick={handleOpenWork}
-                    onCategoryClick={handleOpenCategory}
-                    onSearchClick={() => handleTabSelected('SEARCH')}
-                    onCreateWorkClick={handleOpenCreateWork}
-                    onOpenDepartmentsHub={() => setShowDepartmentsModal(true)}
-                  />
-                ) : (
-                  <DepartmentPortalScreen
-                    departmentId={activeDepartment}
-                    onOpenDepartmentsHub={() => setShowDepartmentsModal(true)}
-                    onSwitchToKinetibeb={() => setActiveDepartment('kinetibeb')}
-                    onSwitchToEhudMerhaGibir={() => setActiveDepartment('ehud_merha_gibir')}
-                  />
-                )
+                <div className="space-y-4 max-w-7xl mx-auto px-3 sm:px-6 py-4">
+                  {/* Top View Mode Switcher between Department Workspace and Heritage Overview */}
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setWorkspaceMode('WORKSPACE')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                          workspaceMode === 'WORKSPACE'
+                            ? 'bg-[#0C4A9E] text-white shadow-xs'
+                            : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                        }`}
+                      >
+                        <span>የክፍሉ የሥራ ገበታ (Workspace)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setWorkspaceMode('HERITAGE')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                          workspaceMode === 'HERITAGE'
+                            ? 'bg-[#0C4A9E] text-white shadow-xs'
+                            : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                        }`}
+                      >
+                        <span>የክፍሉ መግቢያና ማህደር (Overview)</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {workspaceMode === 'WORKSPACE' ? (
+                    isDeptAdmin ? (
+                      <DepartmentAdminWorkspace
+                        onOpenWorkClick={handleOpenWork}
+                        onOpenScheduleDetails={() => {}}
+                      />
+                    ) : (
+                      <DepartmentMemberWorkspace
+                        onOpenWorkClick={handleOpenWork}
+                        onOpenScheduleDetails={() => {}}
+                      />
+                    )
+                  ) : (
+                    activeDepartment === 'ehud_merha_gibir' ? (
+                      <EhudMerhaGibirScreen
+                        onSwitchToKinetibeb={() => setActiveDepartment('kinetibeb')}
+                        onOpenWorkClick={handleOpenWork}
+                        onOpenDepartmentsHub={() => setShowDepartmentsModal(true)}
+                      />
+                    ) : activeDepartment === 'kinetibeb' ? (
+                      <HomeScreen
+                        onWorkClick={handleOpenWork}
+                        onCategoryClick={handleOpenCategory}
+                        onSearchClick={() => handleTabSelected('SEARCH')}
+                        onCreateWorkClick={handleOpenCreateWork}
+                        onOpenDepartmentsHub={() => setShowDepartmentsModal(true)}
+                      />
+                    ) : (
+                      <DepartmentPortalScreen
+                        departmentId={activeDepartment}
+                        onOpenDepartmentsHub={() => setShowDepartmentsModal(true)}
+                        onSwitchToKinetibeb={() => setActiveDepartment('kinetibeb')}
+                        onSwitchToEhudMerhaGibir={() => setActiveDepartment('ehud_merha_gibir')}
+                      />
+                    )
+                  )}
+                </div>
               )}
 
               {activeTab === 'ARCHIVE' && (

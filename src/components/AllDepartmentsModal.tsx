@@ -28,7 +28,15 @@ export const AllDepartmentsModal: React.FC<AllDepartmentsModalProps> = ({
   onClose,
   onSelectDepartment,
 }) => {
-  const { activeDepartment, departmentsList, addDepartment } = useArchive();
+  const {
+    activeDepartment,
+    departmentsList,
+    addDepartment,
+    isSuperAdmin,
+    approvedDepartmentsList,
+    userMemberships,
+    requestDepartmentMembership,
+  } = useArchive();
   const [showAddForm, setShowAddForm] = useState(false);
 
   // New department form
@@ -256,6 +264,10 @@ export const AllDepartmentsModal: React.FC<AllDepartmentsModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               {departmentsList.map((dept) => {
                 const isActive = activeDepartment === dept.id;
+                const isApproved =
+                  isSuperAdmin || approvedDepartmentsList.some((d) => d.id === dept.id);
+                const userMem = userMemberships.find((m) => m.departmentId === dept.id);
+                const isPending = userMem?.status === 'PENDING';
                 return (
                   <div
                     key={dept.id}
@@ -305,20 +317,38 @@ export const AllDepartmentsModal: React.FC<AllDepartmentsModalProps> = ({
                         {dept.coordinatorName || 'አስተባባሪ'}
                       </span>
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onSelectDepartment(dept.id as SundaySchoolDepartment);
-                          onClose();
-                        }}
-                        className={`text-[11px] font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all ${
-                          isActive
-                            ? 'bg-emerald-600 text-white shadow-xs'
-                            : 'bg-[#0C4A9E] text-white hover:bg-[#072958]'
-                        }`}
-                      >
-                        <span>{isActive ? 'ገቢር በር ✓' : 'በር ግባ →'}</span>
-                      </button>
+                      {isApproved ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onSelectDepartment(dept.id as SundaySchoolDepartment);
+                            onClose();
+                          }}
+                          className={`text-[11px] font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all ${
+                            isActive
+                              ? 'bg-emerald-600 text-white shadow-xs'
+                              : 'bg-[#0C4A9E] text-white hover:bg-[#072958]'
+                          }`}
+                        >
+                          <span>{isActive ? 'ገቢር በር ✓' : 'በር ግባ →'}</span>
+                        </button>
+                      ) : isPending ? (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                          በማረጋገጥ ላይ...
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await requestDepartmentMembership(dept.id);
+                            onSelectDepartment(dept.id as SundaySchoolDepartment);
+                            onClose();
+                          }}
+                          className="text-[10px] font-bold px-2 py-1 rounded-lg bg-slate-100 hover:bg-blue-50 text-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors"
+                        >
+                          አመልክት (Apply)
+                        </button>
+                      )}
                     </div>
                   </div>
                 );

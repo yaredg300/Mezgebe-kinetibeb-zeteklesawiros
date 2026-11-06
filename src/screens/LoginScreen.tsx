@@ -22,7 +22,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useArchive } from '../context/ArchiveContext';
-import { DIVISIONS, USER_ROLES, UserRole, SundaySchoolDepartment } from '../types';
+import { DIVISIONS, USER_ROLES, UserRole, SundaySchoolDepartment, SundaySchoolDivision } from '../types';
 import { HaragDivider, ManuscriptBox } from '../components/Ornaments';
 
 export const LoginScreen: React.FC<{
@@ -48,6 +48,11 @@ export const LoginScreen: React.FC<{
   const [password, setPassword] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [role, setRole] = useState<UserRole>('CONTRIBUTOR');
+  const [registerDivision, setRegisterDivision] = useState<SundaySchoolDivision>(() => {
+    return selectedDivision || 'youth';
+  });
+  const [skillsInput, setSkillsInput] = useState<string>('');
+  const [responsibilitiesInput, setResponsibilitiesInput] = useState<string>('');
 
   // Gate selection for entering the app
   const [selectedDeptId, setSelectedDeptId] = useState<SundaySchoolDepartment>(() => {
@@ -130,9 +135,22 @@ export const LoginScreen: React.FC<{
       setActiveDepartment(selectedDeptId);
 
       if (isRegisterMode) {
-        // Real Firebase account creation with department assignment
-        await registerWithEmail(email, password, fullName, role);
-        setSuccessMessage(`አካውንትዎ ተፈጥሯል! ወደ «${selectedDeptInfo?.titleAmharic || 'ክፍል'}» በር በመግባት ላይ...`);
+        const skillsArray = skillsInput
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        // Real Firebase account creation with department membership registration
+        await registerWithEmail(
+          email,
+          password,
+          fullName,
+          role,
+          selectedDeptId,
+          registerDivision,
+          skillsArray,
+          responsibilitiesInput
+        );
+        setSuccessMessage(`አካውንትዎ ተፈጥሯል! የአባልነት ጥያቄዎ ለ«${selectedDeptInfo?.titleAmharic || 'ክፍል'}» አስተዳዳሪ ተልኳል...`);
       } else {
         // Real Firebase account login
         await loginWithEmail(email, password);
@@ -445,21 +463,87 @@ export const LoginScreen: React.FC<{
               </div>
             </div>
 
-            {/* Role selection only in register mode */}
+            {/* Registration specific fields */}
             {isRegisterMode && (
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  የአገልግሎት ዘርፍ / ሚና (Church Role)
-                </label>
-                <select
-                  value={role}
-                  onChange={(e) => setRole(e.target.value as UserRole)}
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
-                >
-                  <option value="CONTRIBUTOR">ደራሲ / አቅራቢ (Contributor / Writer)</option>
-                  <option value="MEMBER">አባል / ተጠቃሚ (Member)</option>
-                  <option value="REVIEWER">ገምጋሚ / የክፍል ኃላፊ (Reviewer)</option>
-                </select>
+              <div className="space-y-3 pt-1 border-t border-slate-200 dark:border-slate-800">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      የሚጠየቀው ክፍል (Department) *
+                    </label>
+                    <select
+                      value={selectedDeptId}
+                      onChange={(e) => {
+                        const val = e.target.value as SundaySchoolDepartment;
+                        setSelectedDeptId(val);
+                        setActiveDepartment(val);
+                      }}
+                      className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
+                    >
+                      {departmentsList.map((dept) => (
+                        <option key={dept.id} value={dept.id}>
+                          {dept.titleAmharic}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      የዕድሜ እርከን (Age Division) *
+                    </label>
+                    <select
+                      value={registerDivision}
+                      onChange={(e) => setRegisterDivision(e.target.value as SundaySchoolDivision)}
+                      className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
+                    >
+                      <option value="children">ሕፃናት (Children)</option>
+                      <option value="intermediates">ማዕከላውያን (Intermediates)</option>
+                      <option value="youth">ወጣቶች (Youth)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    የተጠየቀ የአገልግሎት ሚና (Requested Role)
+                  </label>
+                  <select
+                    value={role}
+                    onChange={(e) => setRole(e.target.value as UserRole)}
+                    className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
+                  >
+                    <option value="CONTRIBUTOR">ደራሲ / አቅራቢ (Contributor / Writer)</option>
+                    <option value="MEMBER">አባል / ተጠቃሚ (Member)</option>
+                    <option value="REVIEWER">ገምጋሚ / ኤዲተር (Reviewer)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    የአገልግሎት ክህሎቶች (በኮማ ይለዩ)
+                  </label>
+                  <input
+                    type="text"
+                    value={skillsInput}
+                    onChange={(e) => setSkillsInput(e.target.value)}
+                    placeholder="ለምሳሌ፡ መዝሙር፣ ቲያትር፣ የሰዓት ቁጥጥር..."
+                    className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    የሚመርጡት ኃላፊነት
+                  </label>
+                  <input
+                    type="text"
+                    value={responsibilitiesInput}
+                    onChange={(e) => setResponsibilitiesInput(e.target.value)}
+                    placeholder="ለምሳሌ፡ የመድረክ መሪነት፣ የጽሑፍ ዝግጅት..."
+                    className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
+                  />
+                </div>
               </div>
             )}
 

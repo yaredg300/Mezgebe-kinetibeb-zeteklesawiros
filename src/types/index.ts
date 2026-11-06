@@ -511,3 +511,176 @@ export type AppDestination =
   | { type: 'CreateWork' }
   | { type: 'ReviewerQueue' };
 
+// =========================================================================
+// DEPARTMENT MEMBERSHIP & APPROVAL MODELS
+// =========================================================================
+export type MembershipApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
+
+export const MEMBERSHIP_STATUS_CONFIG: Record<
+  MembershipApprovalStatus,
+  { amharicLabel: string; colorClass: string; bgClass: string; borderClass: string }
+> = {
+  PENDING: {
+    amharicLabel: 'ማረጋገጫ በመጠባበቅ ላይ',
+    colorClass: 'text-amber-700 dark:text-amber-300',
+    bgClass: 'bg-amber-50 dark:bg-amber-950/40',
+    borderClass: 'border-amber-300 dark:border-amber-800',
+  },
+  APPROVED: {
+    amharicLabel: 'የጸደቀ አባል',
+    colorClass: 'text-emerald-700 dark:text-emerald-300',
+    bgClass: 'bg-emerald-50 dark:bg-emerald-950/40',
+    borderClass: 'border-emerald-300 dark:border-emerald-800',
+  },
+  REJECTED: {
+    amharicLabel: 'ውድቅ የተደረገ',
+    colorClass: 'text-rose-700 dark:text-rose-300',
+    bgClass: 'bg-rose-50 dark:bg-rose-950/40',
+    borderClass: 'border-rose-300 dark:border-rose-800',
+  },
+  SUSPENDED: {
+    amharicLabel: 'የታገደ',
+    colorClass: 'text-slate-700 dark:text-slate-300',
+    bgClass: 'bg-slate-100 dark:bg-slate-800',
+    borderClass: 'border-slate-300 dark:border-slate-700',
+  },
+};
+
+export interface DepartmentMembership {
+  id: string; // `${userId}_${departmentId}`
+  userId: string;
+  userEmail: string;
+  userName: string;
+  departmentId: string;
+  departmentName: string;
+  division?: SundaySchoolDivision;
+  serviceSkills?: string[];
+  preferredResponsibilities?: string;
+  role: UserRole; // 'MEMBER' | 'CONTRIBUTOR' | 'REVIEWER' | 'EDITOR' | 'ADMIN'
+  status: MembershipApprovalStatus;
+  rejectionReason?: string;
+  approvedBy?: string;
+  approvedByName?: string;
+  approvedAt?: string;
+  statusUpdatedAt?: string;
+  createdAt: string;
+}
+
+// =========================================================================
+// SCHEDULE-BASED ASSIGNMENT MODELS
+// =========================================================================
+export type ScheduleTaskStatus =
+  | 'ASSIGNED'
+  | 'ACCEPTED'
+  | 'IN_PROGRESS'
+  | 'SUBMITTED'
+  | 'COMPLETED'
+  | 'REVISION_REQUESTED'
+  | 'CANCELLED';
+
+export const SCHEDULE_TASK_STATUS_CONFIG: Record<
+  ScheduleTaskStatus,
+  { amharicLabel: string; colorClass: string; bgClass: string; borderClass: string }
+> = {
+  ASSIGNED: {
+    amharicLabel: 'የተመደበ (አዲስ)',
+    colorClass: 'text-blue-700 dark:text-blue-300',
+    bgClass: 'bg-blue-50 dark:bg-blue-950/40',
+    borderClass: 'border-blue-300 dark:border-blue-800',
+  },
+  ACCEPTED: {
+    amharicLabel: 'የተቀበለ',
+    colorClass: 'text-cyan-700 dark:text-cyan-300',
+    bgClass: 'bg-cyan-50 dark:bg-cyan-950/40',
+    borderClass: 'border-cyan-300 dark:border-cyan-800',
+  },
+  IN_PROGRESS: {
+    amharicLabel: 'በዝግጅት ላይ',
+    colorClass: 'text-amber-700 dark:text-amber-300',
+    bgClass: 'bg-amber-50 dark:bg-amber-950/40',
+    borderClass: 'border-amber-300 dark:border-amber-800',
+  },
+  SUBMITTED: {
+    amharicLabel: 'የቀረበ (ግምገማ በመጠባበቅ ላይ)',
+    colorClass: 'text-indigo-700 dark:text-indigo-300',
+    bgClass: 'bg-indigo-50 dark:bg-indigo-950/40',
+    borderClass: 'border-indigo-300 dark:border-indigo-800',
+  },
+  COMPLETED: {
+    amharicLabel: 'የተጠናቀቀ / የጸደቀ',
+    colorClass: 'text-emerald-700 dark:text-emerald-300',
+    bgClass: 'bg-emerald-50 dark:bg-emerald-950/40',
+    borderClass: 'border-emerald-300 dark:border-emerald-800',
+  },
+  REVISION_REQUESTED: {
+    amharicLabel: 'ማሻሻያ የተጠየቀበት',
+    colorClass: 'text-rose-700 dark:text-rose-300',
+    bgClass: 'bg-rose-50 dark:bg-rose-950/40',
+    borderClass: 'border-rose-300 dark:border-rose-800',
+  },
+  CANCELLED: {
+    amharicLabel: 'የተሰረዘ',
+    colorClass: 'text-slate-600 dark:text-slate-400',
+    bgClass: 'bg-slate-100 dark:bg-slate-800',
+    borderClass: 'border-slate-300 dark:border-slate-700',
+  },
+};
+
+export interface ScheduleTaskAssignment {
+  id: string;
+  departmentId: string;
+  departmentTitle: string;
+  scheduleProgramId: string; // e.g. 'yth_hidar_6' or 'prog_w1'
+  agendaSlotId?: string; // e.g. 'h6_1' or specific agenda slot
+  agendaSlotTitle: string; // e.g. 'ቃለ እግዚአብሔር፦ ተመየጢ'
+  division?: SundaySchoolDivision;
+  title: string;
+  instructions: string;
+  assignedMemberIds: string[];
+  assignedMemberNames: string[];
+  groupName?: string; // e.g. 'ምድብ 01 (ፍቅር)'
+  responsibleLeadId: string;
+  responsibleLeadName: string;
+  programDate: string; // e.g. 'ኅዳር 6 2019'
+  programTime: string; // e.g. '7:30–9:30'
+  deadlineDate: string;
+  requiredDeliverable?: string; // e.g. 'ስክሪፕት', 'የጽሑፍ ረቂቅ', 'የዝማሬ ዝርዝር'
+  deliverableSubmission?: {
+    content?: string;
+    fileUrl?: string;
+    fileName?: string;
+    submittedAt?: string;
+    submittedByName?: string;
+  };
+  status: ScheduleTaskStatus;
+  adminFeedback?: string;
+  reviewedBy?: string;
+  reviewedByName?: string;
+  reviewedAt?: string;
+  individualParticipation?: Record<string, { accepted: boolean; completed: boolean; notes?: string }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// =========================================================================
+// DEPARTMENT NOTIFICATION MODEL
+// =========================================================================
+export interface DepartmentNotification {
+  id: string;
+  departmentId: string;
+  departmentTitle?: string;
+  targetUserId?: string; // if targeted to specific user or undefined for department broadcast
+  title: string;
+  message: string;
+  type:
+    | 'MEMBERSHIP_STATUS'
+    | 'ASSIGNMENT_CREATED'
+    | 'ASSIGNMENT_SUBMITTED'
+    | 'REVISION_REQUESTED'
+    | 'ASSIGNMENT_COMPLETED'
+    | 'ANNOUNCEMENT';
+  relatedId?: string;
+  createdAt: string;
+  isRead: boolean;
+}
+

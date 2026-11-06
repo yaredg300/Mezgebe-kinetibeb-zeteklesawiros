@@ -181,3 +181,42 @@ export const ReadingProgressHairline: React.FC<{
     </div>
   );
 };
+
+/**
+ * Traditional Ethiopian Cross Ornament (መስቀል)
+ */
+export const CrossOrnament: React.FC<{
+  size?: 'sm' | 'md' | 'lg';
+  color?: 'gold' | 'burgundy' | 'blue' | string;
+  className?: string;
+}> = ({ size = 'md', color = 'gold', className = '' }) => {
+  const hexColor =
+    color === 'gold'
+      ? '#B88500'
+      : color === 'burgundy'
+      ? '#8B0000'
+      : color === 'blue'
+      ? '#0C4A9E'
+      : color;
+
+  const px = size === 'sm' ? 18 : size === 'lg' ? 32 : 24;
+
+  return (
+    <svg
+      width={px}
+      height={px}
+      viewBox="0 0 24 24"
+      fill="none"
+      className={`select-none ${className}`}
+    >
+      <path
+        d="M10 2H14V8H20V12H14V22H10V12H4V8H10V2Z"
+        fill={hexColor}
+      />
+      <circle cx="12" cy="10" r="1.5" fill="#FFFFFF" />
+      <circle cx="12" cy="5" r="1" fill="#FFFFFF" fillOpacity="0.8" />
+      <circle cx="7" cy="10" r="1" fill="#FFFFFF" fillOpacity="0.8" />
+      <circle cx="17" cy="10" r="1" fill="#FFFFFF" fillOpacity="0.8" />
+    </svg>
+  );
+};

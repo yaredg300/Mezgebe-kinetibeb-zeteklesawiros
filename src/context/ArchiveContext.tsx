@@ -20,6 +20,11 @@ import {
   SundayPlanPdfPackage,
   DepartmentInfo,
   ALL_SUNDAY_SCHOOL_DEPARTMENTS,
+  DepartmentMembership,
+  MembershipApprovalStatus,
+  ScheduleTaskStatus,
+  ScheduleTaskAssignment,
+  DepartmentNotification,
 } from '../types';
 import {
   SUNDAY_PLAN_PDF_PACKAGES,
@@ -37,6 +42,11 @@ import {
   ADDITIONAL_DEPARTMENT_MEMBERS,
   ADDITIONAL_DEPARTMENT_EVENTS,
 } from '../data/departmentData';
+import {
+  INITIAL_DEPARTMENT_MEMBERSHIPS,
+  INITIAL_SCHEDULE_ASSIGNMENTS,
+  INITIAL_DEPARTMENT_NOTIFICATIONS,
+} from '../data/departmentMembershipData';
 import { db, auth, storage, googleProvider, getCachedGoogleToken, setCachedGoogleToken } from '../firebase/config';
 import {
   collection,
@@ -907,7 +917,16 @@ interface ArchiveContextType {
   connectGoogleDrive: () => Promise<string | null>;
   disconnectGoogleDrive: () => void;
   signInWithGoogle: () => Promise<FirebaseUser | null>;
-  registerWithEmail: (email: string, password: string, fullName: string, role?: UserRole) => Promise<void>;
+  registerWithEmail: (
+    email: string,
+    password: string,
+    fullName: string,
+    role?: UserRole,
+    requestedDeptId?: string,
+    division?: SundaySchoolDivision,
+    serviceSkills?: string[],
+    preferredResponsibilities?: string
+  ) => Promise<void>;
   loginWithEmail: (email: string, password: string) => Promise<void>;
   resetPasswordEmail: (email: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -977,6 +996,59 @@ interface ArchiveContextType {
   deleteEvent: (eventId: string) => Promise<void>;
   addAssignmentToProgram: (eventId: string, assignment: ProgramAssignment) => Promise<void>;
   toggleAssignmentCompletion: (eventId: string, assignmentId: string) => Promise<void>;
+
+  // Department Isolation, Memberships & Role Scoping
+  departmentMemberships: DepartmentMembership[];
+  scheduleAssignments: ScheduleTaskAssignment[];
+  departmentNotifications: DepartmentNotification[];
+  isSuperAdmin: boolean;
+  userMemberships: DepartmentMembership[];
+  approvedMemberships: DepartmentMembership[];
+  approvedDepartmentsList: DepartmentInfo[];
+  activeMembership: DepartmentMembership | null;
+  isDeptAdmin: boolean;
+  canSwitchDepartments: boolean;
+  hasPendingApproval: boolean;
+  requestDepartmentMembership: (
+    deptId: string,
+    division?: SundaySchoolDivision,
+    serviceSkills?: string[],
+    preferredResponsibilities?: string
+  ) => Promise<DepartmentMembership>;
+  approveMembershipRequest: (membershipId: string, assignedRole: UserRole) => Promise<void>;
+  rejectMembershipRequest: (membershipId: string, rejectionReason: string) => Promise<void>;
+  suspendMembership: (membershipId: string, suspensionReason?: string) => Promise<void>;
+  createScheduleAssignment: (
+    data: Omit<ScheduleTaskAssignment, 'id' | 'createdAt' | 'updatedAt' | 'status'> & {
+      status?: ScheduleTaskStatus;
+    }
+  ) => Promise<ScheduleTaskAssignment>;
+  updateScheduleAssignment: (
+    assignmentId: string,
+    updates: Partial<ScheduleTaskAssignment>
+  ) => Promise<void>;
+  acceptAssignment: (assignmentId: string) => Promise<void>;
+  updateAssignmentProgress: (
+    assignmentId: string,
+    status: ScheduleTaskStatus,
+    notes?: string
+  ) => Promise<void>;
+  submitAssignmentDeliverable: (
+    assignmentId: string,
+    submission: { content?: string; fileUrl?: string; fileName?: string }
+  ) => Promise<void>;
+  reviewAssignment: (
+    assignmentId: string,
+    newStatus: ScheduleTaskStatus,
+    feedback?: string
+  ) => Promise<void>;
+  deleteScheduleAssignment: (assignmentId: string) => Promise<void>;
+  checkMemberWorkload: (
+    memberId: string,
+    targetDate?: string
+  ) => { activeTaskCount: number; hasOverlap: boolean; overlappingAssignments: ScheduleTaskAssignment[] };
+  markNotificationRead: (notificationId: string) => Promise<void>;
+
   playTrack: (track: LiturgicalAudioTrack) => void;
   playWorkAudio: (work: WorkItem) => void;
   toggleAudioPlayPause: () => void;
@@ -1089,6 +1161,39 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     myWorksCount: 0,
     mySubmissionsCount: 0,
     myBookmarksCount: 0,
+  });
+
+  // Department Memberships state
+  const [departmentMemberships, setDepartmentMemberships] = useState<DepartmentMembership[]>(() => {
+    try {
+      const saved = localStorage.getItem('mezgebe_dept_memberships');
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // ignore
+    }
+    return INITIAL_DEPARTMENT_MEMBERSHIPS;
+  });
+
+  // Schedule Task Assignments state
+  const [scheduleAssignments, setScheduleAssignments] = useState<ScheduleTaskAssignment[]>(() => {
+    try {
+      const saved = localStorage.getItem('mezgebe_schedule_assignments');
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // ignore
+    }
+    return INITIAL_SCHEDULE_ASSIGNMENTS;
+  });
+
+  // Department Notifications state
+  const [departmentNotifications, setDepartmentNotifications] = useState<DepartmentNotification[]>(() => {
+    try {
+      const saved = localStorage.getItem('mezgebe_dept_notifications');
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // ignore
+    }
+    return INITIAL_DEPARTMENT_NOTIFICATIONS;
   });
 
   const [audioTracks] = useState<LiturgicalAudioTrack[]>(INITIAL_AUDIO_TRACKS);
@@ -1324,6 +1429,93 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return () => unsubscribe();
   }, []);
 
+  // 5. Real-time Firestore synchronization for Department Memberships
+  useEffect(() => {
+    const membershipsCollectionRef = collection(db, 'department_memberships');
+    const unsubscribe = onSnapshot(
+      membershipsCollectionRef,
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const fetched: DepartmentMembership[] = [];
+          snapshot.forEach((docSnap) => {
+            fetched.push(docSnap.data() as DepartmentMembership);
+          });
+          setDepartmentMemberships(fetched);
+          try {
+            localStorage.setItem('mezgebe_dept_memberships', JSON.stringify(fetched));
+          } catch {}
+        }
+      },
+      (error) => {
+        try {
+          handleFirestoreError(error, OperationType.LIST, 'department_memberships');
+        } catch (err) {
+          console.warn('Operating in offline/cached mode for memberships:', err);
+        }
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  // 6. Real-time Firestore synchronization for Schedule Assignments
+  useEffect(() => {
+    const assignmentsCollectionRef = collection(db, 'schedule_assignments');
+    const unsubscribe = onSnapshot(
+      assignmentsCollectionRef,
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const fetched: ScheduleTaskAssignment[] = [];
+          snapshot.forEach((docSnap) => {
+            fetched.push(docSnap.data() as ScheduleTaskAssignment);
+          });
+          setScheduleAssignments(fetched);
+          try {
+            localStorage.setItem('mezgebe_schedule_assignments', JSON.stringify(fetched));
+          } catch {}
+        }
+      },
+      (error) => {
+        try {
+          handleFirestoreError(error, OperationType.LIST, 'schedule_assignments');
+        } catch (err) {
+          console.warn('Operating in offline/cached mode for schedule assignments:', err);
+        }
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  // 7. Real-time Firestore synchronization for Department Notifications
+  useEffect(() => {
+    const notificationsCollectionRef = collection(db, 'department_notifications');
+    const unsubscribe = onSnapshot(
+      notificationsCollectionRef,
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const fetched: DepartmentNotification[] = [];
+          snapshot.forEach((docSnap) => {
+            fetched.push(docSnap.data() as DepartmentNotification);
+          });
+          setDepartmentNotifications(fetched);
+          try {
+            localStorage.setItem('mezgebe_dept_notifications', JSON.stringify(fetched));
+          } catch {}
+        }
+      },
+      (error) => {
+        try {
+          handleFirestoreError(error, OperationType.LIST, 'department_notifications');
+        } catch (err) {
+          console.warn('Operating in offline/cached mode for notifications:', err);
+        }
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
+
   // Seed initial church data to Cloud Firestore if empty
   const seedInitialFirestoreData = async () => {
     try {
@@ -1335,6 +1527,15 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
       for (const ev of INITIAL_EVENTS) {
         await setDoc(doc(db, 'events', ev.id), ev, { merge: true });
+      }
+      for (const mem of INITIAL_DEPARTMENT_MEMBERSHIPS) {
+        await setDoc(doc(db, 'department_memberships', mem.id), mem, { merge: true });
+      }
+      for (const asgn of INITIAL_SCHEDULE_ASSIGNMENTS) {
+        await setDoc(doc(db, 'schedule_assignments', asgn.id), asgn, { merge: true });
+      }
+      for (const notif of INITIAL_DEPARTMENT_NOTIFICATIONS) {
+        await setDoc(doc(db, 'department_notifications', notif.id), notif, { merge: true });
       }
     } catch {
       // Non-blocking initial seeding
@@ -1363,11 +1564,61 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  // Master Super Admins & Cross-department access
+  const isSuperAdmin = Boolean(
+    currentUser.email === 'goferconstruction@gmail.com' ||
+    currentUser.email === 'yaredcotm@gmail.com' ||
+    currentUser.email === 'admin@teklesawiros.org' ||
+    (currentUser.role === 'ADMIN' && currentUser.id === 'u_default')
+  );
+
+  // User's department memberships
+  const userMemberships = departmentMemberships.filter((m) => {
+    if (currentUser.id && currentUser.id !== 'u_default' && m.userId === currentUser.id) return true;
+    if (currentUser.email && m.userEmail?.toLowerCase() === currentUser.email.toLowerCase()) return true;
+    if (currentUser.id === 'u_default') return true; // In guest preview mode, expose mock memberships
+    return false;
+  });
+
+  const approvedMemberships = isSuperAdmin
+    ? departmentMemberships.filter((m) => m.status === 'APPROVED')
+    : userMemberships.filter((m) => m.status === 'APPROVED');
+
+  const approvedDepartmentsList = isSuperAdmin
+    ? departmentsList
+    : departmentsList.filter((dept) =>
+        approvedMemberships.some((m) => m.departmentId === dept.id)
+      );
+
+  const activeMembership =
+    userMemberships.find((m) => m.departmentId === activeDepartment) || null;
+
+  const isDeptAdmin = Boolean(
+    isSuperAdmin ||
+    (activeMembership?.status === 'APPROVED' && activeMembership?.role === 'ADMIN') ||
+    (currentUser.role === 'ADMIN' && (isSuperAdmin || activeMembership?.status === 'APPROVED'))
+  );
+
+  const canSwitchDepartments = Boolean(
+    isSuperAdmin || approvedDepartmentsList.length > 1
+  );
+
+  const hasPendingApproval = Boolean(
+    currentUser.id &&
+    currentUser.id !== 'u_default' &&
+    !isSuperAdmin &&
+    (!activeMembership || activeMembership.status !== 'APPROVED')
+  );
+
   const registerWithEmail = async (
     email: string,
     password: string,
     fullName: string,
-    role: UserRole = 'CONTRIBUTOR'
+    role: UserRole = 'CONTRIBUTOR',
+    requestedDeptId?: string,
+    division?: SundaySchoolDivision,
+    serviceSkills?: string[],
+    preferredResponsibilities?: string
   ) => {
     const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
     const user = userCredential.user;
@@ -1379,21 +1630,54 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     }
     const isMasterAdmin =
-      user.email === 'yaredcotm@gmail.com' || user.email === 'admin@teklesawiros.org';
+      user.email === 'goferconstruction@gmail.com' ||
+      user.email === 'yaredcotm@gmail.com' ||
+      user.email === 'admin@teklesawiros.org';
     const profileRole: UserRole = isMasterAdmin ? 'ADMIN' : role;
+
+    const targetDeptId = requestedDeptId || activeDepartment || 'kinetibeb';
+    const deptInfo = departmentsList.find((d) => d.id === targetDeptId);
 
     const newProfile: UserProfile = {
       id: user.uid,
       fullName: fullName.trim() || user.email?.split('@')[0] || 'አባል',
       email: user.email || '',
       role: profileRole,
-      department: 'የተክለ ሣዊሮስ ሰንበት ት/ቤት ኪነጥበብ ክፍል',
-      joinedDate: '፳፻፲፮ ዓ.ም',
+      department: deptInfo?.titleAmharic || 'የተክለ ሣዊሮስ ሰንበት ት/ቤት',
+      joinedDate: '፳፻፲፱ ዓ.ም',
       myWorksCount: 0,
       mySubmissionsCount: 0,
       myBookmarksCount: 0,
     };
     setCurrentUser(newProfile);
+
+    // Create department membership request
+    const membershipId = `mem_${user.uid}_${targetDeptId}`;
+    const newMembership: DepartmentMembership = {
+      id: membershipId,
+      userId: user.uid,
+      userEmail: user.email || '',
+      userName: newProfile.fullName,
+      departmentId: targetDeptId,
+      departmentName: deptInfo?.titleAmharic || targetDeptId,
+      division: division || selectedDivision || 'youth',
+      serviceSkills: serviceSkills || [],
+      preferredResponsibilities: preferredResponsibilities || '',
+      role: isMasterAdmin ? 'ADMIN' : role,
+      status: isMasterAdmin ? 'APPROVED' : 'PENDING',
+      createdAt: 'ጥቅምት 2019 ዓ.ም.',
+      approvedBy: isMasterAdmin ? 'super_admin_system' : undefined,
+      approvedByName: isMasterAdmin ? 'የበላይ አስተዳደር' : undefined,
+      approvedAt: isMasterAdmin ? 'ጥቅምት 2019 ዓ.ም.' : undefined,
+    };
+
+    setDepartmentMemberships((prev) => {
+      const next = [newMembership, ...prev.filter((m) => m.id !== membershipId)];
+      try {
+        localStorage.setItem('mezgebe_dept_memberships', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
 
     try {
       await setDoc(
@@ -1410,6 +1694,8 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
         { merge: true }
       );
 
+      await setDoc(doc(db, 'department_memberships', membershipId), newMembership, { merge: true });
+
       if (isMasterAdmin) {
         await setDoc(
           doc(db, 'admins', user.uid),
@@ -1423,6 +1709,428 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } catch {
       // non-blocking
     }
+  };
+
+  const requestDepartmentMembership = async (
+    deptId: string,
+    division?: SundaySchoolDivision,
+    serviceSkills?: string[],
+    preferredResponsibilities?: string
+  ): Promise<DepartmentMembership> => {
+    const dept = departmentsList.find((d) => d.id === deptId);
+    const membershipId = `mem_${currentUser.id}_${deptId}`;
+    const isSuper = isSuperAdmin;
+    const newMembership: DepartmentMembership = {
+      id: membershipId,
+      userId: currentUser.id,
+      userEmail: currentUser.email || '',
+      userName: currentUser.fullName || 'አባል',
+      departmentId: deptId,
+      departmentName: dept?.titleAmharic || deptId,
+      division: division || selectedDivision || 'youth',
+      serviceSkills: serviceSkills || [],
+      preferredResponsibilities: preferredResponsibilities || '',
+      role: isSuper ? 'ADMIN' : 'MEMBER',
+      status: isSuper ? 'APPROVED' : 'PENDING',
+      createdAt: 'ጥቅምት 2019 ዓ.ም.',
+      approvedBy: isSuper ? 'super_admin_system' : undefined,
+      approvedByName: isSuper ? 'የበላይ አስተዳደር' : undefined,
+      approvedAt: isSuper ? 'ጥቅምት 2019 ዓ.ም.' : undefined,
+    };
+
+    setDepartmentMemberships((prev) => {
+      const filtered = prev.filter((m) => m.id !== membershipId);
+      const updated = [newMembership, ...filtered];
+      try {
+        localStorage.setItem('mezgebe_dept_memberships', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    try {
+      await setDoc(doc(db, 'department_memberships', membershipId), newMembership, { merge: true });
+    } catch (err) {
+      console.warn('Offline membership request:', err);
+    }
+
+    await addDepartmentNotification({
+      departmentId: deptId,
+      departmentTitle: dept?.titleAmharic || deptId,
+      title: 'አዲስ የአባልነት ማመልከቻ ደርሷል',
+      message: `${currentUser.fullName} ወደ «${dept?.titleAmharic || deptId}» ለመቀላቀል የአባልነት ማመልከቻ አስገብተዋል።`,
+      type: 'MEMBERSHIP_STATUS',
+      relatedId: membershipId,
+    });
+
+    return newMembership;
+  };
+
+  const approveMembershipRequest = async (membershipId: string, assignedRole: UserRole): Promise<void> => {
+    const target = departmentMemberships.find((m) => m.id === membershipId);
+    if (!target) return;
+
+    const nowEth = 'ጥቅምት 2019 ዓ.ም.';
+    const updated: DepartmentMembership = {
+      ...target,
+      role: assignedRole,
+      status: 'APPROVED',
+      approvedBy: currentUser.id,
+      approvedByName: currentUser.fullName,
+      approvedAt: nowEth,
+      statusUpdatedAt: nowEth,
+      rejectionReason: undefined,
+    };
+
+    setDepartmentMemberships((prev) => {
+      const next = prev.map((m) => (m.id === membershipId ? updated : m));
+      try {
+        localStorage.setItem('mezgebe_dept_memberships', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    try {
+      await setDoc(doc(db, 'department_memberships', membershipId), updated, { merge: true });
+    } catch (err) {
+      console.warn('Offline approve error:', err);
+    }
+
+    await addDepartmentNotification({
+      departmentId: target.departmentId,
+      departmentTitle: target.departmentName,
+      targetUserId: target.userId,
+      title: 'የአባልነት ማመልከቻዎ ጸድቋል!',
+      message: `እንኳን ደስ አሎት! ወደ «${target.departmentName}» ያቀረቡት የአባልነት ጥያቄ ተቀባይነት አግኝቷል። ሚናዎ፦ ${assignedRole} ሆኖ ተመድቧል።`,
+      type: 'MEMBERSHIP_STATUS',
+      relatedId: membershipId,
+    });
+  };
+
+  const rejectMembershipRequest = async (membershipId: string, rejectionReason: string): Promise<void> => {
+    const target = departmentMemberships.find((m) => m.id === membershipId);
+    if (!target) return;
+
+    const nowEth = 'ጥቅምት 2019 ዓ.ም.';
+    const updated: DepartmentMembership = {
+      ...target,
+      status: 'REJECTED',
+      rejectionReason,
+      approvedBy: currentUser.id,
+      approvedByName: currentUser.fullName,
+      statusUpdatedAt: nowEth,
+    };
+
+    setDepartmentMemberships((prev) => {
+      const next = prev.map((m) => (m.id === membershipId ? updated : m));
+      try {
+        localStorage.setItem('mezgebe_dept_memberships', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    try {
+      await setDoc(doc(db, 'department_memberships', membershipId), updated, { merge: true });
+    } catch (err) {
+      console.warn('Offline reject error:', err);
+    }
+
+    await addDepartmentNotification({
+      departmentId: target.departmentId,
+      departmentTitle: target.departmentName,
+      targetUserId: target.userId,
+      title: 'የአባልነት ማመልከቻ ውሳኔ',
+      message: `ወደ «${target.departmentName}» ያቀረቡት ማመልከቻ አልተቀበለም። ምክንያት፦ ${rejectionReason}`,
+      type: 'MEMBERSHIP_STATUS',
+      relatedId: membershipId,
+    });
+  };
+
+  const suspendMembership = async (membershipId: string, suspensionReason?: string): Promise<void> => {
+    const target = departmentMemberships.find((m) => m.id === membershipId);
+    if (!target) return;
+
+    const nowEth = 'ጥቅምት 2019 ዓ.ም.';
+    const updated: DepartmentMembership = {
+      ...target,
+      status: 'SUSPENDED',
+      rejectionReason: suspensionReason,
+      approvedBy: currentUser.id,
+      approvedByName: currentUser.fullName,
+      statusUpdatedAt: nowEth,
+    };
+
+    setDepartmentMemberships((prev) => {
+      const next = prev.map((m) => (m.id === membershipId ? updated : m));
+      try {
+        localStorage.setItem('mezgebe_dept_memberships', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    try {
+      await setDoc(doc(db, 'department_memberships', membershipId), updated, { merge: true });
+    } catch (err) {
+      console.warn('Offline suspend error:', err);
+    }
+  };
+
+  const createScheduleAssignment = async (
+    data: Omit<ScheduleTaskAssignment, 'id' | 'createdAt' | 'updatedAt' | 'status'> & {
+      status?: ScheduleTaskStatus;
+    }
+  ): Promise<ScheduleTaskAssignment> => {
+    const id = `asgn_${Date.now()}`;
+    const nowEth = 'ጥቅምት 2019 ዓ.ም.';
+    const newAssignment: ScheduleTaskAssignment = {
+      ...data,
+      id,
+      status: data.status || 'ASSIGNED',
+      createdAt: nowEth,
+      updatedAt: nowEth,
+    };
+
+    setScheduleAssignments((prev) => {
+      const updated = [newAssignment, ...prev];
+      try {
+        localStorage.setItem('mezgebe_schedule_assignments', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    try {
+      await setDoc(doc(db, 'schedule_assignments', id), newAssignment, { merge: true });
+    } catch (err) {
+      console.warn('Offline schedule assignment:', err);
+    }
+
+    for (const memberId of data.assignedMemberIds) {
+      await addDepartmentNotification({
+        departmentId: data.departmentId,
+        departmentTitle: data.departmentTitle,
+        targetUserId: memberId,
+        title: 'አዲስ የሥራ ምደባ ተሰጥቶዎታል',
+        message: `በ«${data.agendaSlotTitle}» ክፍለ-ጊዜ ውስጥ «${data.title}» ተመድበውበታል። እባክዎ ተመልክተው ይቀበሉ።`,
+        type: 'ASSIGNMENT_CREATED',
+        relatedId: id,
+      });
+    }
+
+    return newAssignment;
+  };
+
+  const updateScheduleAssignment = async (
+    assignmentId: string,
+    updates: Partial<ScheduleTaskAssignment>
+  ): Promise<void> => {
+    const nowEth = 'ጥቅምት 2019 ዓ.ም.';
+    const updatedAssignments = scheduleAssignments.map((asgn) => {
+      if (asgn.id === assignmentId) {
+        return { ...asgn, ...updates, updatedAt: nowEth };
+      }
+      return asgn;
+    });
+
+    setScheduleAssignments(updatedAssignments);
+    try {
+      localStorage.setItem('mezgebe_schedule_assignments', JSON.stringify(updatedAssignments));
+    } catch {}
+
+    const target = updatedAssignments.find((a) => a.id === assignmentId);
+    if (target) {
+      try {
+        await updateDoc(doc(db, 'schedule_assignments', assignmentId), {
+          ...updates,
+          updatedAt: nowEth,
+        });
+      } catch (err) {
+        console.warn('Offline assignment update:', err);
+      }
+    }
+  };
+
+  const acceptAssignment = async (assignmentId: string): Promise<void> => {
+    const target = scheduleAssignments.find((a) => a.id === assignmentId);
+    if (!target) return;
+
+    const existingPart = target.individualParticipation || {};
+    const updatedPart = {
+      ...existingPart,
+      [currentUser.id]: { accepted: true, completed: false },
+    };
+
+    await updateScheduleAssignment(assignmentId, {
+      status: 'ACCEPTED',
+      individualParticipation: updatedPart,
+    });
+  };
+
+  const updateAssignmentProgress = async (
+    assignmentId: string,
+    status: ScheduleTaskStatus,
+    notes?: string
+  ): Promise<void> => {
+    const target = scheduleAssignments.find((a) => a.id === assignmentId);
+    if (!target) return;
+
+    const existingPart = target.individualParticipation || {};
+    const currentMemberPart = existingPart[currentUser.id] || { accepted: true, completed: false };
+    const updatedPart = {
+      ...existingPart,
+      [currentUser.id]: {
+        ...currentMemberPart,
+        notes: notes || currentMemberPart.notes,
+      },
+    };
+
+    await updateScheduleAssignment(assignmentId, {
+      status,
+      individualParticipation: updatedPart,
+    });
+  };
+
+  const submitAssignmentDeliverable = async (
+    assignmentId: string,
+    submission: { content?: string; fileUrl?: string; fileName?: string }
+  ): Promise<void> => {
+    const target = scheduleAssignments.find((a) => a.id === assignmentId);
+    if (!target) return;
+
+    const nowEth = 'ጥቅምት 2019 ዓ.ም.';
+    const deliverableSubmission = {
+      ...submission,
+      submittedAt: nowEth,
+      submittedByName: currentUser.fullName,
+    };
+
+    await updateScheduleAssignment(assignmentId, {
+      status: 'SUBMITTED',
+      deliverableSubmission,
+    });
+
+    // Notify department admin
+    await addDepartmentNotification({
+      departmentId: target.departmentId,
+      departmentTitle: target.departmentTitle,
+      title: 'የሥራ ሪፖርት / ሰነድ ቀርቧል',
+      message: `${currentUser.fullName} ለ«${target.title}» የተዘጋጀውን ሰነድ አስገብተዋል። እባክዎ ገምግመው ያጽድቁ።`,
+      type: 'ASSIGNMENT_SUBMITTED',
+      relatedId: assignmentId,
+    });
+  };
+
+  const reviewAssignment = async (
+    assignmentId: string,
+    newStatus: ScheduleTaskStatus,
+    feedback?: string
+  ): Promise<void> => {
+    const target = scheduleAssignments.find((a) => a.id === assignmentId);
+    if (!target) return;
+
+    const nowEth = 'ጥቅምት 2019 ዓ.ም.';
+    await updateScheduleAssignment(assignmentId, {
+      status: newStatus,
+      adminFeedback: feedback,
+      reviewedBy: currentUser.id,
+      reviewedByName: currentUser.fullName,
+      reviewedAt: nowEth,
+    });
+
+    // Notify assigned member
+    await addDepartmentNotification({
+      departmentId: target.departmentId,
+      departmentTitle: target.departmentTitle,
+      targetUserId: target.responsibleLeadId,
+      title:
+        newStatus === 'COMPLETED'
+          ? 'የቀረበው ሥራ ጸድቋል / ተጠናቋል'
+          : 'በቀረበው ሥራ ላይ ማሻሻያ ተጠይቋል',
+      message:
+        newStatus === 'COMPLETED'
+          ? `ለ«${target.title}» ያቀረቡት ሰነድ በአስተዳዳሪው ጸድቋል። አስተያየት፦ ${feedback || 'ምንም'}`
+          : `ለ«${target.title}» ማሻሻያ ተጠይቋል። አስተያየት፦ ${feedback || 'እባክዎ እንደገና ይገምግሙ'}`,
+      type: newStatus === 'COMPLETED' ? 'ASSIGNMENT_COMPLETED' : 'REVISION_REQUESTED',
+      relatedId: assignmentId,
+    });
+  };
+
+  const deleteScheduleAssignment = async (assignmentId: string): Promise<void> => {
+    setScheduleAssignments((prev) => {
+      const next = prev.filter((a) => a.id !== assignmentId);
+      try {
+        localStorage.setItem('mezgebe_schedule_assignments', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    try {
+      await deleteDoc(doc(db, 'schedule_assignments', assignmentId));
+    } catch (err) {
+      console.warn('Offline assignment delete:', err);
+    }
+  };
+
+  const checkMemberWorkload = (memberId: string, targetDate?: string) => {
+    const activeTasks = scheduleAssignments.filter(
+      (a) =>
+        a.assignedMemberIds.includes(memberId) &&
+        !['COMPLETED', 'CANCELLED'].includes(a.status)
+    );
+
+    const overlappingAssignments = targetDate
+      ? activeTasks.filter(
+          (a) =>
+            a.programDate.includes(targetDate) || targetDate.includes(a.programDate)
+        )
+      : [];
+
+    return {
+      activeTaskCount: activeTasks.length,
+      hasOverlap: overlappingAssignments.length > 0,
+      overlappingAssignments,
+    };
+  };
+
+  const markNotificationRead = async (notificationId: string): Promise<void> => {
+    setDepartmentNotifications((prev) => {
+      const next = prev.map((n) =>
+        n.id === notificationId ? { ...n, isRead: true } : n
+      );
+      try {
+        localStorage.setItem('mezgebe_dept_notifications', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    try {
+      await updateDoc(doc(db, 'department_notifications', notificationId), {
+        isRead: true,
+      });
+    } catch {}
+  };
+
+  const addDepartmentNotification = async (
+    data: Omit<DepartmentNotification, 'id' | 'createdAt' | 'isRead'>
+  ): Promise<void> => {
+    const id = `notif_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const nowEth = 'ጥቅምት 2019 ዓ.ም.';
+    const notification: DepartmentNotification = {
+      ...data,
+      id,
+      createdAt: nowEth,
+      isRead: false,
+    };
+
+    setDepartmentNotifications((prev) => {
+      const next = [notification, ...prev];
+      try {
+        localStorage.setItem('mezgebe_dept_notifications', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    try {
+      await setDoc(doc(db, 'department_notifications', id), notification, { merge: true });
+    } catch {}
   };
 
   const loginWithEmail = async (email: string, password: string) => {
@@ -1911,6 +2619,30 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
         deleteEvent,
         addAssignmentToProgram,
         toggleAssignmentCompletion,
+        departmentMemberships,
+        scheduleAssignments,
+        departmentNotifications,
+        isSuperAdmin,
+        userMemberships,
+        approvedMemberships,
+        approvedDepartmentsList,
+        activeMembership,
+        isDeptAdmin,
+        canSwitchDepartments,
+        hasPendingApproval,
+        requestDepartmentMembership,
+        approveMembershipRequest,
+        rejectMembershipRequest,
+        suspendMembership,
+        createScheduleAssignment,
+        updateScheduleAssignment,
+        acceptAssignment,
+        updateAssignmentProgress,
+        submitAssignmentDeliverable,
+        reviewAssignment,
+        deleteScheduleAssignment,
+        checkMemberWorkload,
+        markNotificationRead,
         playTrack,
         playWorkAudio,
         toggleAudioPlayPause,
