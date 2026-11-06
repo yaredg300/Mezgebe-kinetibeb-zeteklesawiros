@@ -39,6 +39,14 @@ service cloud.firestore {
       return isSuperAdmin();
     }
 
+    function isApprovedMember(deptId) {
+      return isSuperAdmin() || (
+        isSignedIn() &&
+        exists(/databases/$(database)/documents/department_memberships/$(request.auth.uid + '_' + deptId)) &&
+        get(/databases/$(database)/documents/department_memberships/$(request.auth.uid + '_' + deptId)).data.status == 'APPROVED'
+      );
+    }
+
     function isDeptAdmin(deptId) {
       return isSuperAdmin() || (
         isSignedIn() &&
@@ -96,6 +104,7 @@ service cloud.firestore {
              data.fullName is string && data.fullName.size() > 0 && data.fullName.size() <= 150 &&
              data.duty in ['WRITER', 'ORGANIZER', 'PRESENTER'] &&
              data.department is string && data.department.size() <= 150 &&
+             (!('departmentId' in data) || (data.departmentId is string && data.departmentId.size() <= 64)) &&
              (!('phone' in data) || (data.phone is string && data.phone.size() <= 30)) &&
              (!('spiritualTitle' in data) || (data.spiritualTitle is string && data.spiritualTitle.size() <= 100)) &&
              (!('joinedYear' in data) || (data.joinedYear is string && data.joinedYear.size() <= 30)) &&
@@ -104,10 +113,16 @@ service cloud.firestore {
     }
 
     match /members/{memberId} {
-      allow get, list: if true;
-      allow create: if (isAdmin() || isReviewer()) && isValidId(memberId) && isValidMember(incoming());
-      allow update: if (isAdmin() || isReviewer()) && isValidId(memberId) && isValidMember(incoming()) && incoming().id == existing().id;
-      allow delete: if isAdmin() && isValidId(memberId);
+      allow get, list: if !('departmentId' in resource.data) || resource.data.departmentId == null || (
+        isSignedIn() && (
+          isSuperAdmin() ||
+          isApprovedMember(resource.data.departmentId) ||
+          isDeptAdmin(resource.data.departmentId)
+        )
+      );
+      allow create: if (isAdmin() || (isSignedIn() && ('departmentId' in incoming()) && isDeptAdmin(incoming().departmentId))) && isValidId(memberId) && isValidMember(incoming());
+      allow update: if (isAdmin() || (isSignedIn() && ('departmentId' in existing()) && isDeptAdmin(existing().departmentId))) && isValidId(memberId) && isValidMember(incoming()) && incoming().id == existing().id;
+      allow delete: if (isAdmin() || (isSignedIn() && ('departmentId' in resource.data) && isDeptAdmin(resource.data.departmentId))) && isValidId(memberId);
     }
 
     // 5. Cultural Events collection (Church programs and festivals)
@@ -117,6 +132,7 @@ service cloud.firestore {
              data.recurrence in ['WEEKLY', 'MONTHLY', 'YEARLY', 'SPECIAL'] &&
              data.location is string && data.location.size() <= 200 &&
              data.organizer is string && data.organizer.size() <= 150 &&
+             (!('departmentId' in data) || (data.departmentId is string && data.departmentId.size() <= 64)) &&
              (!('dateAmharic' in data) || (data.dateAmharic is string && data.dateAmharic.size() <= 100)) &&
              (!('timeAmharic' in data) || (data.timeAmharic is string && data.timeAmharic.size() <= 100)) &&
              (!('category' in data) || (data.category is string && data.category.size() <= 100)) &&
@@ -126,10 +142,16 @@ service cloud.firestore {
     }
 
     match /events/{eventId} {
-      allow get, list: if true;
-      allow create: if (isAdmin() || isReviewer()) && isValidId(eventId) && isValidEvent(incoming());
-      allow update: if (isAdmin() || isReviewer()) && isValidId(eventId) && isValidEvent(incoming()) && incoming().id == existing().id;
-      allow delete: if isAdmin() && isValidId(eventId);
+      allow get, list: if !('departmentId' in resource.data) || resource.data.departmentId == null || (
+        isSignedIn() && (
+          isSuperAdmin() ||
+          isApprovedMember(resource.data.departmentId) ||
+          isDeptAdmin(resource.data.departmentId)
+        )
+      );
+      allow create: if (isAdmin() || (isSignedIn() && ('departmentId' in incoming()) && isDeptAdmin(incoming().departmentId))) && isValidId(eventId) && isValidEvent(incoming());
+      allow update: if (isAdmin() || (isSignedIn() && ('departmentId' in existing()) && isDeptAdmin(existing().departmentId))) && isValidId(eventId) && isValidEvent(incoming()) && incoming().id == existing().id;
+      allow delete: if (isAdmin() || (isSignedIn() && ('departmentId' in resource.data) && isDeptAdmin(resource.data.departmentId))) && isValidId(eventId);
     }
 
     // 6. Works collection (Poems, literature, theater, scripts, artwork)
@@ -143,6 +165,8 @@ service cloud.firestore {
              data.division in ['children', 'intermediates', 'youth'] &&
              (!('writerName' in data) || (data.writerName is string && data.writerName.size() <= 150)) &&
              (!('categoryName' in data) || (data.categoryName is string && data.categoryName.size() <= 100)) &&
+             (!('departmentId' in data) || (data.departmentId is string && data.departmentId.size() <= 64)) &&
+             (!('departmentTitle' in data) || (data.departmentTitle is string && data.departmentTitle.size() <= 150)) &&
              (!('dateAmharic' in data) || (data.dateAmharic is string && data.dateAmharic.size() <= 50)) &&
              (!('excerpt' in data) || (data.excerpt is string && data.excerpt.size() <= 500)) &&
              (!('readTime' in data) || (data.readTime is string && data.readTime.size() <= 30)) &&
@@ -159,8 +183,16 @@ service cloud.firestore {
     }
 
     match /works/{workId} {
-      // Anyone can read and list works in the public cultural archive
-      allow get, list: if true;
+      // Anyone can read approved/published works in the public cultural archive.
+      // Drafts, reviews, and unapproved works are restricted to author, reviewers, dept admin, or super admin.
+      allow get, list: if resource.data.status in ['APPROVED', 'PUBLISHED'] || (
+        isSignedIn() && (
+          resource.data.writerId == request.auth.uid ||
+          isReviewer() ||
+          isSuperAdmin() ||
+          (('departmentId' in resource.data) && isDeptAdmin(resource.data.departmentId))
+        )
+      );
 
       // Create: Authenticated users can submit their own works under review or draft
       allow create: if isSignedIn() &&
@@ -194,7 +226,7 @@ service cloud.firestore {
       allow create, update, delete: if isSuperAdmin() && isValidId(deptId);
     }
 
-    // 8. Department Memberships (Requests & Approvals)
+    // 8. Department Memberships (Canonical document ID: {userId}_{departmentId})
     function isValidMembership(data) {
       return data.id is string && data.id.size() <= 128 &&
              data.userId is string && data.userId.size() <= 128 &&
@@ -206,34 +238,57 @@ service cloud.firestore {
     }
 
     match /department_memberships/{membershipId} {
-      // Users can read their own membership; department admins can read their department members; super admins can read all
-      allow get: if isSignedIn() && (
+      // Read access:
+      // - User can read their own membership
+      // - Department admin can read memberships in their department
+      // - Super admin can read all
+      allow get, list: if isSignedIn() && (
         resource.data.userId == request.auth.uid ||
         isDeptAdmin(resource.data.departmentId) ||
         isSuperAdmin()
       );
-      allow list: if isSignedIn();
 
-      // Creation: Any signed-in user can create a PENDING membership for themselves with standard role (not ADMIN)
+      // Creation:
+      // - Authenticated users can submit a PENDING membership for themselves with canonical ID {uid}_{deptId}
+      //   and a non-admin role (MEMBER or CONTRIBUTOR)
+      // - Super Admin can provision any membership
       allow create: if isSignedIn() &&
                     isValidId(membershipId) &&
                     isValidMembership(incoming()) && (
-                      (incoming().userId == request.auth.uid && incoming().status == 'PENDING' && incoming().role in ['MEMBER', 'CONTRIBUTOR']) ||
+                      (
+                        incoming().userId == request.auth.uid &&
+                        membershipId == request.auth.uid + '_' + incoming().departmentId &&
+                        incoming().status == 'PENDING' &&
+                        incoming().role in ['MEMBER', 'CONTRIBUTOR']
+                      ) ||
                       isSuperAdmin()
                     );
 
       // Update:
-      // - Pending applicant updating their own application
-      // - Dept Admin or Super Admin approving/rejecting/suspending or updating role
+      // - Pending applicant updating their own submission (cannot elevate status or role)
+      // - Dept Admin can approve/reject/suspend or assign non-admin roles within their department
+      //   (Dept admin CANNOT appoint or remove an ADMIN)
+      // - Super Admin can manage all
       allow update: if isSignedIn() &&
                     isValidId(membershipId) &&
                     isValidMembership(incoming()) && (
-                      (isOwner(existing().userId) && existing().status == 'PENDING' &&
-                       incoming().id == existing().id && incoming().userId == existing().userId &&
-                       incoming().status == 'PENDING' && incoming().role in ['MEMBER', 'CONTRIBUTOR']) ||
-                      (isDeptAdmin(existing().departmentId) &&
-                       incoming().id == existing().id && incoming().userId == existing().userId &&
-                       incoming().departmentId == existing().departmentId) ||
+                      (
+                        isOwner(existing().userId) &&
+                        existing().status == 'PENDING' &&
+                        incoming().id == existing().id &&
+                        incoming().userId == existing().userId &&
+                        incoming().departmentId == existing().departmentId &&
+                        incoming().status == 'PENDING' &&
+                        incoming().role in ['MEMBER', 'CONTRIBUTOR']
+                      ) ||
+                      (
+                        isDeptAdmin(existing().departmentId) &&
+                        incoming().id == existing().id &&
+                        incoming().userId == existing().userId &&
+                        incoming().departmentId == existing().departmentId &&
+                        existing().role != 'ADMIN' &&
+                        incoming().role != 'ADMIN'
+                      ) ||
                       isSuperAdmin()
                     );
 
@@ -246,46 +301,97 @@ service cloud.firestore {
              data.departmentId is string && data.departmentId.size() <= 64 &&
              data.title is string && data.title.size() <= 250 &&
              data.responsibleLeadId is string && data.responsibleLeadId.size() <= 128 &&
+             data.assignedMemberIds is list && data.assignedMemberIds.size() > 0 &&
+             data.scheduleProgramId is string && data.scheduleProgramId.size() <= 128 &&
+             data.agendaSlotId is string && data.agendaSlotId.size() <= 128 &&
              data.status in ['ASSIGNED', 'ACCEPTED', 'IN_PROGRESS', 'SUBMITTED', 'COMPLETED', 'REVISION_REQUESTED', 'CANCELLED'];
     }
 
     match /schedule_assignments/{assignmentId} {
-      allow get, list: if isSignedIn();
+      // Read: Dept admin, Super Admin, or assigned approved member of the department
+      allow get, list: if isSignedIn() && (
+        isSuperAdmin() ||
+        isDeptAdmin(resource.data.departmentId) ||
+        (
+          isApprovedMember(resource.data.departmentId) &&
+          request.auth.uid in resource.data.assignedMemberIds
+        )
+      );
 
-      // Dept admin or Super Admin can create tasks for their department
+      // Create: Dept Admin or Super Admin
+      // Must ensure responsibleLeadId is among assignedMemberIds
       allow create: if isSignedIn() &&
                     isValidId(assignmentId) &&
                     isValidAssignment(incoming()) &&
+                    (incoming().responsibleLeadId in incoming().assignedMemberIds) &&
                     (isDeptAdmin(incoming().departmentId) || isSuperAdmin());
 
       // Update:
-      // - Dept Admin / Super Admin can perform any update
-      // - Assigned members can accept, report progress, and submit work
+      // - Dept Admin / Super Admin can manage assignments within their department (cannot change department)
+      // - Assigned approved member can update their progress/submission only:
+      //   * cannot change departmentId, scheduleProgramId, agendaSlotId, title, instructions, assignedMemberIds, responsibleLeadId
+      //   * cannot mark COMPLETED, CANCELLED, or REVISION_REQUESTED (only Dept Admin / Super Admin)
+      //   * allowed member statuses: ACCEPTED, IN_PROGRESS, SUBMITTED
+      //   * must not be suspended (isApprovedMember check)
       allow update: if isSignedIn() &&
                     isValidId(assignmentId) &&
                     isValidAssignment(incoming()) && (
-                      isDeptAdmin(existing().departmentId) ||
+                      (
+                        isDeptAdmin(existing().departmentId) &&
+                        incoming().departmentId == existing().departmentId &&
+                        incoming().id == existing().id &&
+                        (incoming().responsibleLeadId in incoming().assignedMemberIds)
+                      ) ||
                       isSuperAdmin() ||
                       (
+                        isApprovedMember(existing().departmentId) &&
                         request.auth.uid in existing().assignedMemberIds &&
                         incoming().departmentId == existing().departmentId &&
+                        incoming().id == existing().id &&
+                        incoming().responsibleLeadId == existing().responsibleLeadId &&
+                        incoming().assignedMemberIds == existing().assignedMemberIds &&
+                        incoming().scheduleProgramId == existing().scheduleProgramId &&
+                        incoming().agendaSlotId == existing().agendaSlotId &&
                         incoming().diff(existing()).affectedKeys().hasOnly(['status', 'deliverableSubmission', 'individualParticipation', 'updatedAt']) &&
                         incoming().status in ['ACCEPTED', 'IN_PROGRESS', 'SUBMITTED']
                       )
                     );
 
-      allow delete: if (isDeptAdmin(existing().departmentId) || isSuperAdmin()) && isValidId(assignmentId);
+      allow delete: if isValidId(assignmentId) &&
+                    (isDeptAdmin(existing().departmentId) || isSuperAdmin());
     }
 
     // 10. Department Notifications
     match /department_notifications/{notificationId} {
-      allow get, list: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(notificationId);
-      allow update: if isSignedIn() && isValidId(notificationId) && (
+      allow get, list: if isSignedIn() && (
         resource.data.targetUserId == request.auth.uid ||
+        (!('targetUserId' in resource.data) && isApprovedMember(resource.data.departmentId)) ||
+        (resource.data.targetUserId == null && isApprovedMember(resource.data.departmentId)) ||
+        isDeptAdmin(resource.data.departmentId) ||
         isSuperAdmin()
       );
-      allow delete: if isSuperAdmin() && isValidId(notificationId);
+
+      // Create: Signed-in user (for actions like member requests or task submissions) or Dept Admin / Super Admin
+      allow create: if isSignedIn() &&
+                    isValidId(notificationId) &&
+                    incoming().departmentId is string &&
+                    incoming().title is string &&
+                    incoming().title.size() <= 200;
+
+      // Update: Target user can mark isRead; Dept Admin or Super Admin can manage
+      allow update: if isSignedIn() && isValidId(notificationId) && (
+        (
+          resource.data.targetUserId == request.auth.uid &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['isRead'])
+        ) ||
+        isDeptAdmin(existing().departmentId) ||
+        isSuperAdmin()
+      );
+
+      allow delete: if isValidId(notificationId) && (
+        isDeptAdmin(existing().departmentId) ||
+        isSuperAdmin()
+      );
     }
   }
 }

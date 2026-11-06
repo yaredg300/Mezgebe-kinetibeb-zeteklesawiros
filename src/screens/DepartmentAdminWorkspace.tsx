@@ -87,6 +87,9 @@ export const DepartmentAdminWorkspace: React.FC<{
   const [reviewingAssignment, setReviewingAssignment] = useState<ScheduleTaskAssignment | null>(null);
   const [reviewFeedbackText, setReviewFeedbackText] = useState<string>('');
 
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
   // New Assignment Modal State
   const [showAssignModal, setShowAssignModal] = useState<boolean>(false);
   const [assignForm, setAssignForm] = useState<{
@@ -175,34 +178,42 @@ export const DepartmentAdminWorkspace: React.FC<{
     if (!assignForm.title.trim() || assignForm.assignedMemberIds.length === 0) return;
 
     const leadId = assignForm.responsibleLeadId || assignForm.assignedMemberIds[0];
+    const finalAssignedIds = Array.from(new Set([...assignForm.assignedMemberIds, leadId]));
     const leadMember = approvedMembers.find((m) => m.userId === leadId);
-    const assignedNames = assignForm.assignedMemberIds.map((id) => {
+    const assignedNames = finalAssignedIds.map((id) => {
       const found = approvedMembers.find((m) => m.userId === id);
       return found ? found.userName : id;
     });
 
-    await createScheduleAssignment({
-      departmentId: activeDepartment,
-      departmentTitle: currentDeptInfo?.titleAmharic || activeDepartment,
-      scheduleProgramId: assignForm.scheduleProgramId,
-      agendaSlotId: assignForm.agendaSlotId,
-      agendaSlotTitle: assignForm.agendaSlotTitle,
-      division: assignForm.division,
-      title: assignForm.title,
-      instructions: assignForm.instructions,
-      assignedMemberIds: assignForm.assignedMemberIds,
-      assignedMemberNames: assignedNames,
-      groupName: assignForm.groupName || undefined,
-      responsibleLeadId: leadId,
-      responsibleLeadName: leadMember?.userName || assignedNames[0],
-      programDate: assignForm.programDate,
-      programTime: assignForm.programTime,
-      deadlineDate: assignForm.deadlineDate,
-      requiredDeliverable: assignForm.requiredDeliverable || undefined,
-      status: 'ASSIGNED',
-    });
-
-    setShowAssignModal(false);
+    setIsSubmitting(true);
+    setActionError(null);
+    try {
+      await createScheduleAssignment({
+        departmentId: activeDepartment,
+        departmentTitle: currentDeptInfo?.titleAmharic || activeDepartment,
+        scheduleProgramId: assignForm.scheduleProgramId,
+        agendaSlotId: assignForm.agendaSlotId,
+        agendaSlotTitle: assignForm.agendaSlotTitle,
+        division: assignForm.division,
+        title: assignForm.title,
+        instructions: assignForm.instructions,
+        assignedMemberIds: finalAssignedIds,
+        assignedMemberNames: assignedNames,
+        groupName: assignForm.groupName || undefined,
+        responsibleLeadId: leadId,
+        responsibleLeadName: leadMember?.userName || assignedNames[0],
+        programDate: assignForm.programDate,
+        programTime: assignForm.programTime,
+        deadlineDate: assignForm.deadlineDate,
+        requiredDeliverable: assignForm.requiredDeliverable || undefined,
+        status: 'ASSIGNED',
+      });
+      setShowAssignModal(false);
+    } catch (err: any) {
+      setActionError(err?.message || 'ሥራውን መመደብ አልተቻለም።');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Workload check for selected lead
@@ -1081,6 +1092,12 @@ export const DepartmentAdminWorkspace: React.FC<{
                 </select>
               </div>
 
+              {actionError && (
+                <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 font-medium">
+                  {actionError}
+                </div>
+              )}
+
               <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-xs text-blue-900 dark:text-blue-200">
                 <p className="font-bold mb-0.5">ማረጋገጫና ኦዲት</p>
                 <p className="text-[11px]">
@@ -1091,24 +1108,37 @@ export const DepartmentAdminWorkspace: React.FC<{
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setApprovingMembership(null)}
+                  disabled={isSubmitting}
+                  onClick={() => {
+                    setActionError(null);
+                    setApprovingMembership(null);
+                  }}
                   className="flex-1 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold"
                 >
                   ተመለስ
                 </button>
                 <button
                   type="button"
+                  disabled={isSubmitting}
                   onClick={async () => {
-                    await approveMembershipRequest(
-                      approvingMembership.id,
-                      assignedRoleForApproval
-                    );
-                    setApprovingMembership(null);
+                    setIsSubmitting(true);
+                    setActionError(null);
+                    try {
+                      await approveMembershipRequest(
+                        approvingMembership.id,
+                        assignedRoleForApproval
+                      );
+                      setApprovingMembership(null);
+                    } catch (err: any) {
+                      setActionError(err?.message || 'ማጽደቅ አልተቻለም። እባክዎ እንደገና ይሞክሩ።');
+                    } finally {
+                      setIsSubmitting(false);
+                    }
                   }}
-                  className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs flex items-center justify-center gap-1.5"
+                  className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold shadow-xs flex items-center justify-center gap-1.5"
                 >
                   <UserCheck className="w-3.5 h-3.5" />
-                  <span>አጽድቅ (Confirm Approval)</span>
+                  <span>{isSubmitting ? 'በማስቀመጥ ላይ...' : 'አጽድቅ (Confirm Approval)'}</span>
                 </button>
               </div>
             </div>
@@ -1128,6 +1158,12 @@ export const DepartmentAdminWorkspace: React.FC<{
             </p>
 
             <div className="space-y-4">
+              {actionError && (
+                <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 font-medium">
+                  {actionError}
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   የውድቅ ማድረጊያ ምክንያት *
@@ -1144,25 +1180,37 @@ export const DepartmentAdminWorkspace: React.FC<{
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setRejectingMembership(null)}
+                  disabled={isSubmitting}
+                  onClick={() => {
+                    setActionError(null);
+                    setRejectingMembership(null);
+                  }}
                   className="flex-1 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold"
                 >
                   ተመለስ
                 </button>
                 <button
                   type="button"
-                  disabled={!rejectionReasonText.trim()}
+                  disabled={!rejectionReasonText.trim() || isSubmitting}
                   onClick={async () => {
-                    await rejectMembershipRequest(
-                      rejectingMembership.id,
-                      rejectionReasonText
-                    );
-                    setRejectingMembership(null);
+                    setIsSubmitting(true);
+                    setActionError(null);
+                    try {
+                      await rejectMembershipRequest(
+                        rejectingMembership.id,
+                        rejectionReasonText
+                      );
+                      setRejectingMembership(null);
+                    } catch (err: any) {
+                      setActionError(err?.message || 'ውድቅ ማድረግ አልተቻለም።');
+                    } finally {
+                      setIsSubmitting(false);
+                    }
                   }}
                   className="flex-1 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-bold shadow-xs flex items-center justify-center gap-1.5"
                 >
                   <UserX className="w-3.5 h-3.5" />
-                  <span>ውድቅ አድርግ (Confirm Reject)</span>
+                  <span>{isSubmitting ? 'በማስቀመጥ ላይ...' : 'ውድቅ አድርግ (Confirm Reject)'}</span>
                 </button>
               </div>
             </div>
@@ -1182,6 +1230,12 @@ export const DepartmentAdminWorkspace: React.FC<{
             </p>
 
             <div className="space-y-4">
+              {actionError && (
+                <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 font-medium">
+                  {actionError}
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   የእገዳ ምክንያት
@@ -1198,24 +1252,37 @@ export const DepartmentAdminWorkspace: React.FC<{
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setSuspendingMembership(null)}
+                  disabled={isSubmitting}
+                  onClick={() => {
+                    setActionError(null);
+                    setSuspendingMembership(null);
+                  }}
                   className="flex-1 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold"
                 >
                   ተመለስ
                 </button>
                 <button
                   type="button"
+                  disabled={isSubmitting}
                   onClick={async () => {
-                    await suspendMembership(
-                      suspendingMembership.id,
-                      suspensionReasonText
-                    );
-                    setSuspendingMembership(null);
+                    setIsSubmitting(true);
+                    setActionError(null);
+                    try {
+                      await suspendMembership(
+                        suspendingMembership.id,
+                        suspensionReasonText
+                      );
+                      setSuspendingMembership(null);
+                    } catch (err: any) {
+                      setActionError(err?.message || 'ማገድ አልተቻለም።');
+                    } finally {
+                      setIsSubmitting(false);
+                    }
                   }}
-                  className="flex-1 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs flex items-center justify-center gap-1.5"
+                  className="flex-1 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-xs font-bold shadow-xs flex items-center justify-center gap-1.5"
                 >
                   <AlertTriangle className="w-3.5 h-3.5" />
-                  <span>አግድ (Confirm Suspend)</span>
+                  <span>{isSubmitting ? 'በማስቀመጥ ላይ...' : 'አግድ (Confirm Suspend)'}</span>
                 </button>
               </div>
             </div>
@@ -1259,43 +1326,71 @@ export const DepartmentAdminWorkspace: React.FC<{
                 />
               </div>
 
+              {actionError && (
+                <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 font-medium">
+                  {actionError}
+                </div>
+              )}
+
               <div className="flex flex-col sm:flex-row gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setReviewingAssignment(null)}
+                  disabled={isSubmitting}
+                  onClick={() => {
+                    setActionError(null);
+                    setReviewingAssignment(null);
+                  }}
                   className="py-2.5 px-4 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold"
                 >
                   ተመለስ
                 </button>
                 <button
                   type="button"
+                  disabled={isSubmitting}
                   onClick={async () => {
-                    await reviewAssignment(
-                      reviewingAssignment.id,
-                      'REVISION_REQUESTED',
-                      reviewFeedbackText || 'እባክዎ እንደገና ይገምግሙና ማሻሻያ አድርገው ያስረክቡ።'
-                    );
-                    setReviewingAssignment(null);
+                    setIsSubmitting(true);
+                    setActionError(null);
+                    try {
+                      await reviewAssignment(
+                        reviewingAssignment.id,
+                        'REVISION_REQUESTED',
+                        reviewFeedbackText || 'እባክዎ እንደገና ይገምግሙና ማሻሻያ አድርገው ያስረክቡ።'
+                      );
+                      setReviewingAssignment(null);
+                    } catch (err: any) {
+                      setActionError(err?.message || 'ማሻሻያ መጠየቅ አልተቻለም።');
+                    } finally {
+                      setIsSubmitting(false);
+                    }
                   }}
-                  className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs"
+                  className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
-                  <span>ማሻሻያ ጠይቅ (Request Revision)</span>
+                  <span>{isSubmitting ? 'በማስቀመጥ ላይ...' : 'ማሻሻያ ጠይቅ (Request Revision)'}</span>
                 </button>
                 <button
                   type="button"
+                  disabled={isSubmitting}
                   onClick={async () => {
-                    await reviewAssignment(
-                      reviewingAssignment.id,
-                      'COMPLETED',
-                      reviewFeedbackText || 'ሥራው በታላቅ ምስጋና ጸድቋል።'
-                    );
-                    setReviewingAssignment(null);
+                    setIsSubmitting(true);
+                    setActionError(null);
+                    try {
+                      await reviewAssignment(
+                        reviewingAssignment.id,
+                        'COMPLETED',
+                        reviewFeedbackText || 'ሥራው በታላቅ ምስጋና ጸድቋል።'
+                      );
+                      setReviewingAssignment(null);
+                    } catch (err: any) {
+                      setActionError(err?.message || 'ሥራውን ማጽደቅ አልተቻለም።');
+                    } finally {
+                      setIsSubmitting(false);
+                    }
                   }}
-                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs"
+                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs"
                 >
                   <Check className="w-3.5 h-3.5" />
-                  <span>አጽድቅና አጠናቅ (Approve Completed)</span>
+                  <span>{isSubmitting ? 'በማስቀመጥ ላይ...' : 'አጽድቅና አጠናቅ (Approve Completed)'}</span>
                 </button>
               </div>
             </div>
@@ -1493,10 +1588,20 @@ export const DepartmentAdminWorkspace: React.FC<{
                 />
               </div>
 
+              {actionError && (
+                <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 font-medium">
+                  {actionError}
+                </div>
+              )}
+
               <div className="flex gap-2 pt-3">
                 <button
                   type="button"
-                  onClick={() => setShowAssignModal(false)}
+                  disabled={isSubmitting}
+                  onClick={() => {
+                    setActionError(null);
+                    setShowAssignModal(false);
+                  }}
                   className="flex-1 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold"
                 >
                   ተመለስ
@@ -1504,12 +1609,13 @@ export const DepartmentAdminWorkspace: React.FC<{
                 <button
                   type="submit"
                   disabled={
-                    selectedLeadWorkload.hasOverlap && !assignForm.overrideOverlap
+                    isSubmitting ||
+                    (selectedLeadWorkload.hasOverlap && !assignForm.overrideOverlap)
                   }
                   className="flex-1 py-2.5 rounded-xl bg-[#0C4A9E] hover:bg-[#072958] disabled:opacity-50 text-white text-xs font-bold shadow-sm flex items-center justify-center gap-1.5"
                 >
                   <PlusCircle className="w-4 h-4" />
-                  <span>ሥራውን መድብ (Confirm Assignment)</span>
+                  <span>{isSubmitting ? 'በማስቀመጥ ላይ...' : 'ሥራውን መድብ (Confirm Assignment)'}</span>
                 </button>
               </div>
             </form>

@@ -58,13 +58,12 @@ export const DepartmentMemberWorkspace: React.FC<{
 
   const currentDeptInfo = departmentsList.find((d) => d.id === activeDepartment);
 
-  // My tasks
+  // My tasks strictly authenticated by UID
   const myTasks = scheduleAssignments.filter((a) => {
     if (a.departmentId !== activeDepartment) return false;
     return (
       a.assignedMemberIds.includes(currentUser.id) ||
-      a.responsibleLeadId === currentUser.id ||
-      a.assignedMemberNames.some((n) => n === currentUser.fullName)
+      a.responsibleLeadId === currentUser.id
     );
   });
 

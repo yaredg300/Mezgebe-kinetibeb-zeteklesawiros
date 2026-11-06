@@ -183,7 +183,7 @@ export const INITIAL_DEPARTMENT_MEMBERSHIPS: DepartmentMembership[] = [
 
   // --- 6. PENDING MEMBERSHIP REQUESTS (For instant testing of approval workflow) ---
   {
-    id: 'req_pend_1_kinetibeb',
+    id: 'u_applicant_1_kinetibeb',
     userId: 'u_applicant_1',
     userEmail: 'dawit.mulugeta@gmail.com',
     userName: 'ዳዊት ሙሉጌታ',
@@ -197,7 +197,7 @@ export const INITIAL_DEPARTMENT_MEMBERSHIPS: DepartmentMembership[] = [
     createdAt: 'ጥቅምት ፳፭ ፳፻፲፱ ዓ.ም',
   },
   {
-    id: 'req_pend_2_ehud_merha_gibir',
+    id: 'u_applicant_2_ehud_merha_gibir',
     userId: 'u_applicant_2',
     userEmail: 'ruth.tesfaye@gmail.com',
     userName: 'ሩት ተስፋዬ',
@@ -211,7 +211,7 @@ export const INITIAL_DEPARTMENT_MEMBERSHIPS: DepartmentMembership[] = [
     createdAt: 'ጥቅምት ፳፯ ፳፻፲፱ ዓ.ም',
   },
   {
-    id: 'req_pend_3_education',
+    id: 'u_applicant_3_education',
     userId: 'u_applicant_3',
     userEmail: 'natnael.tafesse@gmail.com',
     userName: 'ዲ/ን ናትናኤል ታፈሰ',
