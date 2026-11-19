@@ -43,9 +43,9 @@ import { AppHeader } from '../components/AppHeader';
 
 interface DepartmentPortalScreenProps {
   departmentId: SundaySchoolDepartment;
-  onOpenDepartmentsHub: () => void;
-  onSwitchToKinetibeb: () => void;
-  onSwitchToEhudMerhaGibir: () => void;
+  onOpenDepartmentsHub?: () => void;
+  onSwitchToKinetibeb?: () => void;
+  onSwitchToEhudMerhaGibir?: () => void;
   onNavigateToArchive?: () => void;
   onNavigateToSearch?: () => void;
   onNavigateToEvents?: () => void;
@@ -1480,35 +1480,45 @@ export const DepartmentPortalScreen: React.FC<DepartmentPortalScreenProps> = ({
             </div>
 
             {/* Quick Actions */}
-            <div className="flex flex-col sm:flex-row md:flex-col gap-2 shrink-0 w-full md:w-auto">
-              <button
-                type="button"
-                onClick={onOpenDepartmentsHub}
-                className="py-2.5 px-4 rounded-xl bg-white text-[#072958] font-bold text-xs hover:bg-slate-100 transition-colors shadow-sm flex items-center justify-center gap-2"
-              >
-                <ArrowLeftRight className="w-4 h-4 text-[#B88500]" />
-                <span>የመግቢያ በር ቀይር (Switch Gate)</span>
-              </button>
+            {(onOpenDepartmentsHub || onSwitchToKinetibeb || onSwitchToEhudMerhaGibir) && (
+              <div className="flex flex-col sm:flex-row md:flex-col gap-2 shrink-0 w-full md:w-auto">
+                {onOpenDepartmentsHub && (
+                  <button
+                    type="button"
+                    onClick={onOpenDepartmentsHub}
+                    className="py-2.5 px-4 rounded-xl bg-white text-[#072958] font-bold text-xs hover:bg-slate-100 transition-colors shadow-sm flex items-center justify-center gap-2"
+                  >
+                    <ArrowLeftRight className="w-4 h-4 text-[#B88500]" />
+                    <span>የመግቢያ በር ቀይር (Switch Gate)</span>
+                  </button>
+                )}
 
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={onSwitchToKinetibeb}
-                  className="flex-1 py-1.5 px-2.5 rounded-lg bg-black/30 hover:bg-black/50 text-[11px] font-bold text-white border border-white/20 transition-colors flex items-center justify-center gap-1"
-                >
-                  <Palette className="w-3.5 h-3.5 text-[#FFD54F]" />
-                  <span>ወደ ኪነጥበብ</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={onSwitchToEhudMerhaGibir}
-                  className="flex-1 py-1.5 px-2.5 rounded-lg bg-black/30 hover:bg-black/50 text-[11px] font-bold text-white border border-white/20 transition-colors flex items-center justify-center gap-1"
-                >
-                  <CalendarDays className="w-3.5 h-3.5 text-[#FFD54F]" />
-                  <span>ወደ እሁድ መርሐ ግብር</span>
-                </button>
+                {(onSwitchToKinetibeb || onSwitchToEhudMerhaGibir) && (
+                  <div className="flex gap-2">
+                    {onSwitchToKinetibeb && (
+                      <button
+                        type="button"
+                        onClick={onSwitchToKinetibeb}
+                        className="flex-1 py-1.5 px-2.5 rounded-lg bg-black/30 hover:bg-black/50 text-[11px] font-bold text-white border border-white/20 transition-colors flex items-center justify-center gap-1"
+                      >
+                        <Palette className="w-3.5 h-3.5 text-[#FFD54F]" />
+                        <span>ወደ ኪነጥበብ</span>
+                      </button>
+                    )}
+                    {onSwitchToEhudMerhaGibir && (
+                      <button
+                        type="button"
+                        onClick={onSwitchToEhudMerhaGibir}
+                        className="flex-1 py-1.5 px-2.5 rounded-lg bg-black/30 hover:bg-black/50 text-[11px] font-bold text-white border border-white/20 transition-colors flex items-center justify-center gap-1"
+                      >
+                        <CalendarDays className="w-3.5 h-3.5 text-[#FFD54F]" />
+                        <span>ወደ እሁድ መርሐ ግብር</span>
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
-            </div>
+            )}
           </div>
         </div>
 
