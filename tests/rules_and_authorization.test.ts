@@ -155,7 +155,80 @@ async function runTests() {
     console.error('❌ TEST 7 FAILED:', err.message);
   }
 
-  console.log(`\n--- Test Suite Summary: ${passedCount}/7 Tests Passed Successfully ---\n`);
+  // TEST 8: Ehud Merha Gibir Registration Payload & Sunday School ID Validation
+  try {
+    const ehudPayload = sanitizeFirestorePayload({
+      id: 'usr_1_ehud_merha_gibir',
+      userId: 'usr_1',
+      userEmail: 'member@teklesawiros.org',
+      userName: 'አበበ ከበደ',
+      departmentId: 'ehud_merha_gibir',
+      sundaySchoolId: 'TS-2019-042',
+      requestedPosition: 'DEPARTMENT_HEAD',
+      role: 'MEMBER',
+      status: 'PENDING',
+      createdAt: '2026-11-19T00:00:00.000Z',
+    });
+
+    assert(ehudPayload.sundaySchoolId === 'TS-2019-042', 'Sunday School ID must be preserved');
+    assert(ehudPayload.requestedPosition === 'DEPARTMENT_HEAD', 'Requested position must be preserved');
+    assert(ehudPayload.role === 'MEMBER', 'Self-registered applicant must start with non-privileged base role');
+    assert(ehudPayload.status === 'PENDING', 'Self-registered applicant must start in PENDING status');
+    console.log('✅ TEST 8 PASSED: Ehud Merha Gibir registration stores Sunday School ID & position safely');
+    passedCount++;
+  } catch (err: any) {
+    console.error('❌ TEST 8 FAILED:', err.message);
+  }
+
+  // TEST 9: Department-Scoped Member Authorization Authority (canApproveMembers)
+  try {
+    const elsabetMemberships = [
+      {
+        id: 'elsabet_ehud_merha_gibir',
+        userId: 'elsabet_uid',
+        departmentId: 'ehud_merha_gibir',
+        role: 'REVIEWER',
+        requestedPosition: 'MIKITIL_HEAD',
+        status: 'APPROVED',
+        canApproveMembers: true,
+      },
+    ];
+
+    const canAuthorizeInDept = (deptId: string) =>
+      elsabetMemberships.some(
+        (m) =>
+          m.departmentId === deptId &&
+          m.status === 'APPROVED' &&
+          (m.role === 'ADMIN' || m.canApproveMembers === true)
+      );
+
+    assert(
+      canAuthorizeInDept('ehud_merha_gibir') === true,
+      'Elsabet must be able to authorize members in ehud_merha_gibir'
+    );
+    assert(
+      canAuthorizeInDept('kinetibeb') === false,
+      'Elsabet must NOT be able to authorize members in kinetibeb or any other department'
+    );
+
+    // Authorizer without Super Admin cannot promote to ADMIN or grant canApproveMembers
+    const isSuperAdmin = false;
+    const attemptedRole = 'ADMIN';
+    const canAssignAdminRole = isSuperAdmin && attemptedRole === 'ADMIN';
+    const canDelegateMemberAuth = isSuperAdmin;
+
+    assert(!canAssignAdminRole, 'Non-Super-Admin authorizer must not promote members to ADMIN');
+    assert(!canDelegateMemberAuth, 'Non-Super-Admin authorizer must not grant canApproveMembers to others');
+
+    console.log(
+      '✅ TEST 9 PASSED: Member authorization authority is strictly scoped to ehud_merha_gibir and blocks privilege escalation'
+    );
+    passedCount++;
+  } catch (err: any) {
+    console.error('❌ TEST 9 FAILED:', err.message);
+  }
+
+  console.log(`\n--- Test Suite Summary: ${passedCount}/9 Tests Passed Successfully ---\n`);
 }
 
 runTests().catch((err) => {

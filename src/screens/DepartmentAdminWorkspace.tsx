@@ -25,6 +25,8 @@ import {
   Check,
   RotateCcw,
   Sparkles,
+  Mail,
+  UserPlus,
 } from 'lucide-react';
 import { useArchive } from '../context/ArchiveContext';
 import {
@@ -32,11 +34,14 @@ import {
   ScheduleTaskAssignment,
   ScheduleTaskStatus,
   UserRole,
+  UserProfile,
   SundaySchoolDivision,
+  EhudDepartmentPosition,
   DIVISIONS,
   MEMBERSHIP_STATUS_CONFIG,
   SCHEDULE_TASK_STATUS_CONFIG,
   USER_ROLES,
+  EHUD_DEPARTMENT_POSITIONS,
 } from '../types';
 import { HaragDivider, CrossOrnament, ManuscriptBox } from '../components/Ornaments';
 
@@ -49,18 +54,27 @@ type AdminWorkspaceTab =
   | 'SUBMISSIONS';
 
 export const DepartmentAdminWorkspace: React.FC<{
+  memberAuthOnly?: boolean;
   onOpenWorkClick?: (workId: string) => void;
   onOpenScheduleDetails?: (programId: string) => void;
-}> = ({ onOpenWorkClick, onOpenScheduleDetails }) => {
+}> = ({ memberAuthOnly = false, onOpenWorkClick, onOpenScheduleDetails }) => {
   const {
     activeDepartment,
+    setActiveDepartment,
     departmentsList,
     departmentMemberships,
+    departmentInvites,
+    registeredUsers,
+    registeredUsersError,
     scheduleAssignments,
     dailyPlanSheets,
     currentUser,
     isSuperAdmin,
     approveMembershipRequest,
+    appointUserToDepartment,
+    toggleMemberApprovalAuthority,
+    createDepartmentInvite,
+    cancelDepartmentInvite,
     rejectMembershipRequest,
     suspendMembership,
     createScheduleAssignment,
@@ -70,13 +84,47 @@ export const DepartmentAdminWorkspace: React.FC<{
     checkMemberWorkload,
   } = useArchive();
 
-  const [activeTab, setActiveTab] = useState<AdminWorkspaceTab>('OVERVIEW');
+  const [activeTab, setActiveTab] = useState<AdminWorkspaceTab>(
+    memberAuthOnly ? 'REQUESTS' : 'OVERVIEW'
+  );
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [userDirectoryQuery, setUserDirectoryQuery] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
+
+  // Pre-approval by Email State
+  const [inviteEmail, setInviteEmail] = useState<string>('');
+  const [inviteFullName, setInviteFullName] = useState<string>('');
+  const [inviteSundaySchoolId, setInviteSundaySchoolId] = useState<string>('');
+  const [inviteEhudPosition, setInviteEhudPosition] = useState<EhudDepartmentPosition>('MEMBER');
+  const [inviteRole, setInviteRole] = useState<UserRole>('MEMBER');
+  const [inviteCanApproveMembers, setInviteCanApproveMembers] = useState<boolean>(false);
+  const [isSendingInvite, setIsSendingInvite] = useState<boolean>(false);
+  const [inviteFeedback, setInviteFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Modal States
   const [approvingMembership, setApprovingMembership] = useState<DepartmentMembership | null>(null);
+  const [appointingUser, setAppointingUser] = useState<UserProfile | null>(null);
   const [assignedRoleForApproval, setAssignedRoleForApproval] = useState<UserRole>('CONTRIBUTOR');
+  const [assignedEhudPositionForApproval, setAssignedEhudPositionForApproval] =
+    useState<EhudDepartmentPosition>('MEMBER');
+  const [assignedCanApproveForApproval, setAssignedCanApproveForApproval] = useState<boolean>(false);
+  const [togglingAuthId, setTogglingAuthId] = useState<string | null>(null);
+
+  const mapEhudPositionToUserRole = (pos: EhudDepartmentPosition): UserRole => {
+    if (pos === 'DEPARTMENT_HEAD') return 'ADMIN';
+    if (pos === 'MIKITIL_HEAD') return 'REVIEWER';
+    return 'MEMBER';
+  };
+
+  const getEhudPositionFromMembership = (
+    requestedPosition?: EhudDepartmentPosition,
+    role?: UserRole
+  ): EhudDepartmentPosition => {
+    if (requestedPosition) return requestedPosition;
+    if (role === 'ADMIN') return 'DEPARTMENT_HEAD';
+    if (role === 'REVIEWER' || role === 'EDITOR') return 'MIKITIL_HEAD';
+    return 'MEMBER';
+  };
 
   const [rejectingMembership, setRejectingMembership] = useState<DepartmentMembership | null>(null);
   const [rejectionReasonText, setRejectionReasonText] = useState<string>('');
@@ -129,7 +177,69 @@ export const DepartmentAdminWorkspace: React.FC<{
   // Scoped Department Data
   const deptMemberships = departmentMemberships.filter((m) => m.departmentId === activeDepartment);
   const pendingRequests = deptMemberships.filter((m) => m.status === 'PENDING');
+  const rejectedOrSuspendedMemberships = deptMemberships.filter(
+    (m) => m.status === 'REJECTED' || m.status === 'SUSPENDED'
+  );
+  const otherDeptPendingRequests = isSuperAdmin
+    ? departmentMemberships.filter((m) => m.status === 'PENDING' && m.departmentId !== activeDepartment)
+    : [];
+  const activeInvitesForDept = departmentInvites.filter(
+    (inv) => inv.departmentId === activeDepartment && inv.status === 'ACTIVE'
+  );
   const approvedMembers = deptMemberships.filter((m) => m.status === 'APPROVED');
+  const unassignedRegisteredUsers = isSuperAdmin
+    ? registeredUsers.filter((u) => {
+        const alreadyApprovedInDept = approvedMembers.some((m) => m.userId === u.id);
+        if (alreadyApprovedInDept) return false;
+        if (!userDirectoryQuery.trim()) return true;
+        const q = userDirectoryQuery.toLowerCase();
+        return (
+          (u.fullName || '').toLowerCase().includes(q) ||
+          (u.email || '').toLowerCase().includes(q) ||
+          (u.sundaySchoolId || '').toLowerCase().includes(q)
+        );
+      })
+    : [];
+
+  const handleCreateInviteSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setInviteFeedback(null);
+    setIsSendingInvite(true);
+    const isEhudDept = activeDepartment === 'ehud_merha_gibir';
+    const resolvedRole: UserRole = isEhudDept
+      ? mapEhudPositionToUserRole(inviteEhudPosition)
+      : inviteRole;
+    try {
+      const { immediatelyApproved } = await createDepartmentInvite({
+        email: inviteEmail,
+        fullName: inviteFullName,
+        departmentId: activeDepartment,
+        role: resolvedRole,
+        division: 'youth',
+        sundaySchoolId: inviteSundaySchoolId || undefined,
+        requestedPosition: isEhudDept ? inviteEhudPosition : undefined,
+        canApproveMembers: isSuperAdmin ? inviteCanApproveMembers : undefined,
+      });
+
+      setInviteFeedback({
+        type: 'success',
+        text: immediatelyApproved
+          ? `${inviteFullName} (${inviteEmail}) ወዲያውኑ ጸድቀው ወደ «${currentDeptInfo?.shortTitleAmharic || activeDepartment}» ተጨምረዋል!`
+          : `${inviteFullName} (${inviteEmail}) ቀድመው ጸድቀዋል! በዚህ ኢሜይል Login ሲያደርጉ ወይም ሲመዘገቡ ወዲያውኑ ወደ ክፍሉ ይገባሉ።`,
+      });
+      setInviteEmail('');
+      setInviteFullName('');
+      setInviteSundaySchoolId('');
+      setInviteCanApproveMembers(false);
+    } catch (err: any) {
+      setInviteFeedback({
+        type: 'error',
+        text: err?.message || 'ግብዣውን ማስቀመጥ አልተቻለም።',
+      });
+    } finally {
+      setIsSendingInvite(false);
+    }
+  };
   const deptAssignments = scheduleAssignments.filter((a) => a.departmentId === activeDepartment);
   const submittedTasks = deptAssignments.filter((a) => a.status === 'SUBMITTED');
   const completedTasks = deptAssignments.filter((a) => a.status === 'COMPLETED');
@@ -229,61 +339,83 @@ export const DepartmentAdminWorkspace: React.FC<{
 
         <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 mb-1.5">
+            <div className="flex items-center gap-2 mb-1.5 flex-wrap">
               <span className="px-2.5 py-0.5 rounded-full bg-[#B88500] text-slate-900 text-[10px] font-black tracking-wider uppercase">
-                የክፍሉ አስተዳዳሪ ዴስክ
+                {memberAuthOnly ? 'የአባላት ማረጋገጫ ኃላፊ' : 'የክፍሉ አስተዳዳሪ ዴስክ'}
               </span>
               <span className="text-xs text-blue-200">
-                {isSuperAdmin ? 'የበላይ አስተዳዳሪ (Super Admin)' : 'የክፍል ኃላፊ (Dept Admin)'}
+                {isSuperAdmin
+                  ? 'የበላይ አስተዳዳሪ (Super Admin)'
+                  : memberAuthOnly
+                  ? `የ«${currentDeptInfo?.shortTitleAmharic || activeDepartment}» አባላት ብቻ አጽዳቂ`
+                  : 'የክፍል ኃላፊ (Dept Admin)'}
               </span>
             </div>
             <h1 className="text-xl sm:text-2xl font-bold font-serif-ethiopic text-[#FFD54F]">
               {currentDeptInfo?.titleAmharic || 'የክፍሉ የሥራ ገበታ'}
             </h1>
             <p className="text-xs sm:text-sm text-blue-100 font-serif-ethiopic mt-0.5">
-              የአባላት ማረጋገጫ፣ የሥራ ምደባዎች፣ ዕለታዊ አጀንዳዎችና የቀረቡ ሰነዶች ግምገማ
+              {memberAuthOnly
+                ? 'የዚህን ክፍል አባላት ብቻ ማረጋገጥና ማጽደቅ (ለሌሎች ክፍሎች አይሰራም)'
+                : 'የአባላት ማረጋገጫ፣ የሥራ ምደባዎች፣ ዕለታዊ አጀንዳዎችና የቀረቡ ሰነዶች ግምገማ'}
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                setAssignForm({
-                  scheduleProgramId: 'yth_hidar_6',
-                  agendaSlotId: '',
-                  agendaSlotTitle: 'የእሁድ ክፍለ-ጊዜ',
-                  division: 'youth',
-                  title: '',
-                  instructions: '',
-                  assignedMemberIds: approvedMembers.length > 0 ? [approvedMembers[0].userId] : [],
-                  groupName: '',
-                  responsibleLeadId: approvedMembers.length > 0 ? approvedMembers[0].userId : '',
-                  programDate: 'ኅዳር 6 2019 ዓ.ም.',
-                  programTime: '7:30–9:30',
-                  deadlineDate: 'ኅዳር 4 2019 ዓ.ም.',
-                  requiredDeliverable: '',
-                  overrideOverlap: false,
-                });
-                setShowAssignModal(true);
-              }}
-              className="px-4 py-2 rounded-full bg-[#B88500] hover:bg-[#9E7200] text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md transition-colors"
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>አዲስ ሥራ መድብ (Assign)</span>
-            </button>
-          </div>
+          {!memberAuthOnly && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setAssignForm({
+                    scheduleProgramId: 'yth_hidar_6',
+                    agendaSlotId: 'general_slot',
+                    agendaSlotTitle: 'የእሁድ ክፍለ-ጊዜ',
+                    division: 'youth',
+                    title: '',
+                    instructions: '',
+                    assignedMemberIds: approvedMembers.length > 0 ? [approvedMembers[0].userId] : [],
+                    groupName: '',
+                    responsibleLeadId: approvedMembers.length > 0 ? approvedMembers[0].userId : '',
+                    programDate: 'ኅዳር 6 2019 ዓ.ም.',
+                    programTime: '7:30–9:30',
+                    deadlineDate: 'ኅዳር 4 2019 ዓ.ም.',
+                    requiredDeliverable: '',
+                    overrideOverlap: false,
+                  });
+                  setShowAssignModal(true);
+                }}
+                className="px-4 py-2 rounded-full bg-[#B88500] hover:bg-[#9E7200] text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md transition-colors"
+              >
+                <PlusCircle className="w-4 h-4" />
+                <span>አዲስ ሥራ መድብ (Assign)</span>
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Workspace Sub-tabs Navigation */}
         <div className="flex items-center gap-1.5 mt-5 overflow-x-auto pb-1 scrollbar-none border-t border-white/10 pt-3">
-          {[
-            { id: 'OVERVIEW', label: 'አጠቃላይ (Overview)', count: undefined },
-            { id: 'REQUESTS', label: 'የአባልነት ጥያቄዎች', count: pendingRequests.length },
-            { id: 'MEMBERS', label: 'የክፍሉ አባላትና ጫና', count: approvedMembers.length },
-            { id: 'SCHEDULE_AGENDA', label: 'የመርሐ ግብር ክፍለ-ጊዜዎች', count: relevantDailySheets.length },
-            { id: 'ASSIGNMENTS', label: 'የሥራ ምደባዎች', count: deptAssignments.length },
-            { id: 'SUBMISSIONS', label: 'የቀረቡ ሥራዎችና ግምገማ', count: submittedTasks.length },
-          ].map((tab) => (
+          {(memberAuthOnly
+            ? [
+                {
+                  id: 'REQUESTS',
+                  label: 'የአባልነት ጥያቄዎችና ማረጋገጫ',
+                  count: pendingRequests.length,
+                },
+                { id: 'MEMBERS', label: 'የክፍሉ የጸደቁ አባላት', count: approvedMembers.length },
+              ]
+            : [
+                { id: 'OVERVIEW', label: 'አጠቃላይ (Overview)', count: undefined },
+                {
+                  id: 'REQUESTS',
+                  label: 'የአባልነት ጥያቄዎች',
+                  count: pendingRequests.length + otherDeptPendingRequests.length,
+                },
+                { id: 'MEMBERS', label: 'የክፍሉ አባላትና ጫና', count: approvedMembers.length },
+                { id: 'SCHEDULE_AGENDA', label: 'የመርሐ ግብር ክፍለ-ጊዜዎች', count: relevantDailySheets.length },
+                { id: 'ASSIGNMENTS', label: 'የሥራ ምደባዎች', count: deptAssignments.length },
+                { id: 'SUBMISSIONS', label: 'የቀረቡ ሥራዎችና ግምገማ', count: submittedTasks.length },
+              ]
+          ).map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as AdminWorkspaceTab)}
@@ -405,7 +537,7 @@ export const DepartmentAdminWorkspace: React.FC<{
           </div>
 
           {/* Pending Alerts Banner */}
-          {pendingRequests.length > 0 && (
+          {(pendingRequests.length > 0 || otherDeptPendingRequests.length > 0) && (
             <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-lg bg-amber-200 dark:bg-amber-900 text-amber-900 dark:text-amber-100 flex items-center justify-center shrink-0">
@@ -413,7 +545,9 @@ export const DepartmentAdminWorkspace: React.FC<{
                 </div>
                 <div>
                   <h4 className="text-xs font-bold text-amber-900 dark:text-amber-200">
-                    {pendingRequests.length} አዳዲስ የአባልነት ማመልከቻዎች ውሳኔ ይጠብቃሉ
+                    {pendingRequests.length > 0
+                      ? `${pendingRequests.length} አዳዲስ የአባልነት ማመልከቻዎች ውሳኔ ይጠብቃሉ`
+                      : `በሌሎች ክፍሎች ${otherDeptPendingRequests.length} የአባልነት ጥያቄዎች ውሳኔ ይጠብቃሉ`}
                   </h4>
                   <p className="text-[11px] text-amber-700 dark:text-amber-300">
                     አባላቱ የክፍሉን መረጃዎች ማየትና በሥራዎች ላይ መሳተፍ የሚችሉት ሲያጸድቁላቸው ብቻ ነው።
@@ -554,10 +688,10 @@ export const DepartmentAdminWorkspace: React.FC<{
           </div>
 
           {pendingRequests.length === 0 ? (
-            <div className="text-center py-12 text-slate-400">
-              <UserCheck className="w-12 h-12 mx-auto text-emerald-500/60 mb-2" />
+            <div className="text-center py-8 text-slate-400">
+              <UserCheck className="w-10 h-10 mx-auto text-emerald-500/60 mb-2" />
               <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
-                ምንም አዲስ የአባልነት ጥያቄ የለም
+                በዚህ ክፍል ምንም አዲስ የአባልነት ጥያቄ የለም
               </p>
               <p className="text-xs text-slate-500">
                 ሁሉም የቀረቡ ማመልከቻዎች ተገምግመው ተጠናቀዋል።
@@ -589,6 +723,23 @@ export const DepartmentAdminWorkspace: React.FC<{
                       ኢሜይል፦ <span className="font-mono text-slate-700 dark:text-slate-300">{req.userEmail}</span> | የቀረበበት ቀን፦ {req.createdAt}
                     </p>
 
+                    {(req.sundaySchoolId || req.requestedPosition) && (
+                      <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                        {req.sundaySchoolId && (
+                          <span className="px-2 py-0.5 rounded-md bg-[#B88500]/15 border border-[#B88500]/30 text-[11px] font-mono font-bold text-[#8B0000] dark:text-[#FFD54F]">
+                            መታወቂያ ቁጥር፦ {req.sundaySchoolId}
+                          </span>
+                        )}
+                        {req.requestedPosition && (
+                          <span className="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-[11px] font-bold text-indigo-800 dark:text-indigo-200">
+                            የተጠየቀ ሚና፦ {EHUD_DEPARTMENT_POSITIONS[req.requestedPosition]?.rank}ኛ.{' '}
+                            {EHUD_DEPARTMENT_POSITIONS[req.requestedPosition]?.amharicTitle} (
+                            {EHUD_DEPARTMENT_POSITIONS[req.requestedPosition]?.englishTitle})
+                          </span>
+                        )}
+                      </div>
+                    )}
+
                     {req.serviceSkills && req.serviceSkills.length > 0 && (
                       <div className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300 pt-0.5">
                         <span className="text-[11px] text-slate-400">የአገልግሎት ክህሎት፦</span>
@@ -613,8 +764,27 @@ export const DepartmentAdminWorkspace: React.FC<{
                   <div className="flex items-center gap-2 shrink-0">
                     <button
                       onClick={() => {
+                        setAppointingUser(null);
                         setApprovingMembership(req);
-                        setAssignedRoleForApproval(req.role || 'CONTRIBUTOR');
+                        setAssignedCanApproveForApproval(Boolean(req.canApproveMembers));
+                        const ehudPos = getEhudPositionFromMembership(
+                          req.requestedPosition,
+                          req.role
+                        );
+                        setAssignedEhudPositionForApproval(
+                          ehudPos === 'DEPARTMENT_HEAD' && !isSuperAdmin ? 'MIKITIL_HEAD' : ehudPos
+                        );
+                        setAssignedRoleForApproval(
+                          req.departmentId === 'ehud_merha_gibir'
+                            ? mapEhudPositionToUserRole(
+                                ehudPos === 'DEPARTMENT_HEAD' && !isSuperAdmin
+                                  ? 'MIKITIL_HEAD'
+                                  : ehudPos
+                              )
+                            : req.requestedPosition === 'DEPARTMENT_HEAD' && isSuperAdmin
+                            ? 'ADMIN'
+                            : req.role || 'CONTRIBUTOR'
+                        );
                       }}
                       className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-colors"
                     >
@@ -635,6 +805,411 @@ export const DepartmentAdminWorkspace: React.FC<{
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Cross-department pending requests visible to Super Admin */}
+          {isSuperAdmin && otherDeptPendingRequests.length > 0 && (
+            <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-2.5">
+              <h4 className="text-xs font-bold text-[#B88500] flex items-center gap-1.5">
+                <Building2 className="w-3.5 h-3.5" />
+                <span>በሌሎች ክፍሎች የቀረቡ ጥያቄዎች ({otherDeptPendingRequests.length})</span>
+              </h4>
+              <div className="space-y-2">
+                {otherDeptPendingRequests.map((req) => (
+                  <div
+                    key={req.id}
+                    className="p-3 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/40 dark:bg-amber-950/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  >
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-bold text-slate-900 dark:text-white">
+                          {req.userName}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950 text-[10px] font-bold text-blue-800 dark:text-blue-200">
+                          {req.departmentName}
+                        </span>
+                        {req.sundaySchoolId && (
+                          <span className="text-[10px] font-mono font-bold text-[#8B0000] dark:text-[#FFD54F]">
+                            ID: {req.sundaySchoolId}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 font-mono">{req.userEmail}</p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setActiveDepartment(req.departmentId)}
+                        className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-200"
+                      >
+                        ወደ ክፍሉ ቀይር
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAppointingUser(null);
+                          setApprovingMembership(req);
+                          setAssignedCanApproveForApproval(Boolean(req.canApproveMembers));
+                          const ehudPos = getEhudPositionFromMembership(
+                            req.requestedPosition,
+                            req.role
+                          );
+                          setAssignedEhudPositionForApproval(ehudPos);
+                          setAssignedRoleForApproval(
+                            req.departmentId === 'ehud_merha_gibir'
+                              ? mapEhudPositionToUserRole(ehudPos)
+                              : req.requestedPosition === 'DEPARTMENT_HEAD'
+                              ? 'ADMIN'
+                              : req.role || 'MEMBER'
+                          );
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold"
+                      >
+                        አጽድቅ (Approve)
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Pre-Approve / Add Member Directly by Email */}
+          <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
+            <div>
+              <h4 className="text-xs font-bold text-[#8B0000] dark:text-[#FFD54F] flex items-center gap-1.5">
+                <UserPlus className="w-4 h-4" />
+                <span>በኢሜይል ቀድሞ አጽድቅ / አባል ጨምር (Pre-Approve Member by Email)</span>
+              </h4>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                አባሉ በዝርዝሩ ውስጥ ካልታየ (ለምሳሌ ገና ካልተመዘገበ ወይም ቀደም ሲል መመዝገብ ላይ ችግር አጋጥሞት ከነበረ) ኢሜይሉን እዚህ ያስገቡ። አባሉ አንዴ Login ሲያደርግ ወዲያውኑ ጸድቆ ወደ «{currentDeptInfo?.shortTitleAmharic}» ይገባል።
+              </p>
+            </div>
+
+            <form
+              onSubmit={handleCreateInviteSubmit}
+              className="p-4 rounded-xl border border-[#B88500]/30 bg-amber-50/40 dark:bg-slate-900/50 space-y-3"
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    የአባሉ ኢሜይል (Email) *
+                  </label>
+                  <div className="relative">
+                    <Mail className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                    <input
+                      type="email"
+                      required
+                      value={inviteEmail}
+                      onChange={(e) => setInviteEmail(e.target.value)}
+                      placeholder="elsabet@example.com"
+                      className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-[#B88500]"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    ሙሉ ስም (Full Name) *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={inviteFullName}
+                    onChange={(e) => setInviteFullName(e.target.value)}
+                    placeholder="ኤልሳቤጥ ..."
+                    className="w-full px-3 py-1.5 text-xs rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-[#B88500]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    የሰንበት ት/ቤት መታወቂያ (ID)
+                  </label>
+                  <input
+                    type="text"
+                    value={inviteSundaySchoolId}
+                    onChange={(e) => setInviteSundaySchoolId(e.target.value)}
+                    placeholder="ለምሳሌ፡ TS-2019-042"
+                    className="w-full px-3 py-1.5 text-xs rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-[#B88500]"
+                  />
+                </div>
+
+                {activeDepartment === 'ehud_merha_gibir' ? (
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      የክፍል ሚና (Department Role) *
+                    </label>
+                    <select
+                      value={inviteEhudPosition}
+                      onChange={(e) =>
+                        setInviteEhudPosition(e.target.value as EhudDepartmentPosition)
+                      }
+                      className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-[#B88500]"
+                    >
+                      {isSuperAdmin && (
+                        <option value="DEPARTMENT_HEAD">1ኛ. የክፍል ኃላፊ (Department Head)</option>
+                      )}
+                      <option value="MIKITIL_HEAD">2ኛ. ምክትል ኃላፊ (Mikitil Head)</option>
+                      <option value="MEMBER">3ኛ. አባል (Member)</option>
+                    </select>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      የክፍል ሚና (Role) *
+                    </label>
+                    <select
+                      value={inviteRole}
+                      onChange={(e) => setInviteRole(e.target.value as UserRole)}
+                      className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-[#B88500]"
+                    >
+                      <option value="MEMBER">አባል (Member)</option>
+                      <option value="CONTRIBUTOR">ደራሲ / አቅራቢ (Contributor)</option>
+                      <option value="REVIEWER">ገምጋሚ (Reviewer)</option>
+                      {isSuperAdmin && (
+                        <option value="ADMIN">የክፍሉ አስተዳዳሪ (Department Admin)</option>
+                      )}
+                    </select>
+                  </div>
+                )}
+
+                <div className="flex items-end">
+                  <button
+                    type="submit"
+                    disabled={isSendingInvite}
+                    className="w-full py-1.5 px-3 rounded-lg bg-[#0C4A9E] hover:bg-[#072958] disabled:opacity-50 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs"
+                  >
+                    <UserCheck className="w-3.5 h-3.5" />
+                    <span>{isSendingInvite ? 'በማስቀመጥ ላይ...' : 'ቀድሞ አጽድቅ (Pre-Approve)'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {isSuperAdmin && (
+                <label className="flex items-center gap-2 p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/70 border border-emerald-300/70 dark:border-emerald-800/70 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={inviteCanApproveMembers}
+                    onChange={(e) => setInviteCanApproveMembers(e.target.checked)}
+                    className="rounded text-emerald-600 focus:ring-[#B88500]"
+                  />
+                  <span className="text-[11px] font-bold text-emerald-900 dark:text-emerald-200">
+                    የ«{currentDeptInfo?.shortTitleAmharic || activeDepartment}» አባላትን ብቻ ማረጋገጥና ማጽደቅ ትችላለች/ይችላል (Can Authorize Members of This Dept Only)
+                  </span>
+                </label>
+              )}
+
+              {inviteFeedback && (
+                <div
+                  className={`p-2.5 rounded-lg text-xs font-medium ${
+                    inviteFeedback.type === 'success'
+                      ? 'bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
+                      : 'bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200'
+                  }`}
+                >
+                  {inviteFeedback.text}
+                </div>
+              )}
+            </form>
+
+            {activeInvitesForDept.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                  በመጠባበቅ ላይ ያሉ ቀድመው የጸደቁ ግብዣዎች ({activeInvitesForDept.length}) — አባሉ ሲገባ ወዲያውኑ ይነቃል፦
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {activeInvitesForDept.map((inv) => (
+                    <div
+                      key={inv.id}
+                      className="p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-900 bg-emerald-50/40 dark:bg-emerald-950/20 flex items-center justify-between gap-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                            {inv.fullName}
+                          </span>
+                          {inv.canApproveMembers && (
+                            <span className="px-1.5 py-0.2 rounded-full bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 text-[9px] font-bold">
+                              አባል አጽዳቂ (Member Auth)
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[10px] font-mono text-slate-500 truncate">
+                          {inv.emailLower} •{' '}
+                          {inv.departmentId === 'ehud_merha_gibir'
+                            ? (() => {
+                                const pos = getEhudPositionFromMembership(inv.requestedPosition, inv.role);
+                                return `${EHUD_DEPARTMENT_POSITIONS[pos].rank}ኛ. ${EHUD_DEPARTMENT_POSITIONS[pos].amharicTitle} (${EHUD_DEPARTMENT_POSITIONS[pos].englishTitle})`;
+                              })()
+                            : inv.role}
+                          {inv.sundaySchoolId ? ` • ID: ${inv.sundaySchoolId}` : ''}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => cancelDepartmentInvite(inv.id)}
+                        className="px-2 py-1 rounded-lg text-[10px] font-bold text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-950 shrink-0"
+                      >
+                        ሰርዝ
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Rejected or Suspended Memberships that can be Restored */}
+          {rejectedOrSuspendedMemberships.length > 0 && (
+            <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-2.5">
+              <h4 className="text-xs font-bold text-rose-700 dark:text-rose-300 flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5" />
+                <span>ውድቅ የተደረጉ ወይም የታገዱ አባላት ({rejectedOrSuspendedMemberships.length})</span>
+              </h4>
+              <div className="space-y-2">
+                {rejectedOrSuspendedMemberships.map((mem) => (
+                  <div
+                    key={mem.id}
+                    className="p-3 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/40 dark:bg-rose-950/20 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-slate-900 dark:text-white">
+                          {mem.userName}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-200">
+                          {MEMBERSHIP_STATUS_CONFIG[mem.status].amharicLabel}
+                        </span>
+                      </div>
+                      <p className="text-[11px] font-mono text-slate-500">{mem.userEmail}</p>
+                      {mem.rejectionReason && (
+                        <p className="text-[11px] text-rose-700 dark:text-rose-300">
+                          ምክንያት፦ {mem.rejectionReason}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAppointingUser(null);
+                        setApprovingMembership(mem);
+                        setAssignedCanApproveForApproval(Boolean(mem.canApproveMembers));
+                        const ehudPos = getEhudPositionFromMembership(
+                          mem.requestedPosition,
+                          mem.role
+                        );
+                        setAssignedEhudPositionForApproval(
+                          ehudPos === 'DEPARTMENT_HEAD' && !isSuperAdmin ? 'MIKITIL_HEAD' : ehudPos
+                        );
+                        setAssignedRoleForApproval(
+                          mem.departmentId === 'ehud_merha_gibir'
+                            ? mapEhudPositionToUserRole(
+                                ehudPos === 'DEPARTMENT_HEAD' && !isSuperAdmin
+                                  ? 'MIKITIL_HEAD'
+                                  : ehudPos
+                              )
+                            : mem.role || 'MEMBER'
+                        );
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold shrink-0"
+                    >
+                      እንደገና አጽድቅ (Restore)
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Super Admin Registered Accounts Directory (catches Google Sign-In or users without dept membership doc) */}
+          {isSuperAdmin && (
+            <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h4 className="text-xs font-bold text-[#0C4A9E] dark:text-[#7FAFFF] flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5" />
+                    <span>የተመዘገቡ አካውንቶች ዝርዝር (All Registered Users: {registeredUsers.length})</span>
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    በGoogle ወይም በኢሜይል የተመዘገቡ ግን ገና በዚህ ክፍል ያልጸደቁ ተጠቃሚዎችን በቀጥታ መፈለግና ማጽደቅ ይችላሉ።
+                  </p>
+                </div>
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
+                  <input
+                    type="text"
+                    value={userDirectoryQuery}
+                    onChange={(e) => setUserDirectoryQuery(e.target.value)}
+                    placeholder="በስም፣ በኢሜይል ወይም በID ፈልግ..."
+                    className="pl-8 pr-3 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
+                  />
+                </div>
+              </div>
+
+              {registeredUsersError && (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300">
+                  የተጠቃሚዎችን ዝርዝር መጫን አልተቻለም፦ {registeredUsersError}
+                </div>
+              )}
+
+              {unassignedRegisteredUsers.length === 0 ? (
+                <p className="text-[11px] text-slate-400 italic py-2">
+                  በ«{currentDeptInfo?.shortTitleAmharic}» ውስጥ ገና ያልጸደቀ ተመዝጋቢ አልተገኘም። አባሉ ከላይ ባለው «በኢሜይል ቀድሞ አጽድቅ» ቅጽ መጨመር ይችላል።
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 max-h-72 overflow-y-auto pr-1">
+                  {unassignedRegisteredUsers.map((u) => (
+                    <div
+                      key={u.id}
+                      className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 flex items-center justify-between gap-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                          {u.fullName}
+                        </div>
+                        <div className="text-[10px] font-mono text-slate-500 truncate">{u.email}</div>
+                        <div className="flex flex-wrap gap-1.5 mt-1">
+                          {u.sundaySchoolId && (
+                            <span className="text-[10px] font-mono font-bold text-[#8B0000] dark:text-[#FFD54F]">
+                              ID: {u.sundaySchoolId}
+                            </span>
+                          )}
+                          {u.requestedPosition && (
+                            <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300">
+                              {EHUD_DEPARTMENT_POSITIONS[u.requestedPosition]?.amharicTitle}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setApprovingMembership(null);
+                          setAppointingUser(u);
+                          setAssignedCanApproveForApproval(false);
+                          const ehudPos = getEhudPositionFromMembership(
+                            u.requestedPosition,
+                            u.role
+                          );
+                          setAssignedEhudPositionForApproval(ehudPos);
+                          setAssignedRoleForApproval(
+                            activeDepartment === 'ehud_merha_gibir'
+                              ? mapEhudPositionToUserRole(ehudPos)
+                              : u.requestedPosition === 'DEPARTMENT_HEAD'
+                              ? 'ADMIN'
+                              : 'MEMBER'
+                          );
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg bg-[#0C4A9E] hover:bg-[#072958] text-white text-[11px] font-bold shrink-0"
+                      >
+                        ወደ ክፍሉ አጽድቅ
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -695,35 +1270,62 @@ export const DepartmentAdminWorkspace: React.FC<{
                         <span
                           className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 dark:bg-blue-950 text-blue-900 dark:text-blue-100"
                         >
-                          {roleConfig?.amharicTitle || member.role}
+                          {activeDepartment === 'ehud_merha_gibir'
+                            ? (() => {
+                                const pos = getEhudPositionFromMembership(
+                                  member.requestedPosition,
+                                  member.role
+                                );
+                                return `${EHUD_DEPARTMENT_POSITIONS[pos].rank}ኛ. ${EHUD_DEPARTMENT_POSITIONS[pos].amharicTitle}`;
+                              })()
+                            : roleConfig?.amharicTitle || member.role}
                         </span>
                       </div>
 
                       {member.division && (
-                        <p className="text-[11px] text-slate-600 dark:text-slate-400 mb-2">
+                        <p className="text-[11px] text-slate-600 dark:text-slate-400 mb-1">
                           የዕድሜ እርከን፦ <strong className="text-slate-800 dark:text-slate-200">{DIVISIONS[member.division]?.titleAmharic || member.division}</strong>
                         </p>
                       )}
+                      {member.sundaySchoolId && (
+                        <p className="text-[11px] text-slate-600 dark:text-slate-400 mb-1">
+                          መታወቂያ ቁጥር፦ <strong className="font-mono text-[#0C4A9E] dark:text-[#7FAFFF]">{member.sundaySchoolId}</strong>
+                        </p>
+                      )}
+                      {member.requestedPosition && (
+                        <p className="text-[11px] text-slate-600 dark:text-slate-400 mb-2">
+                          የክፍል ደረጃ፦ <strong className="text-[#8B0000] dark:text-[#FFD54F]">{EHUD_DEPARTMENT_POSITIONS[member.requestedPosition]?.rank}ኛ. {EHUD_DEPARTMENT_POSITIONS[member.requestedPosition]?.amharicTitle}</strong>
+                        </p>
+                      )}
+
+                      {(member.canApproveMembers || member.role === 'ADMIN') && (
+                        <div className="mb-2 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-[10px] font-bold text-emerald-800 dark:text-emerald-200 flex items-center gap-1.5">
+                          <Shield className="w-3 h-3 text-emerald-600 shrink-0" />
+                          <span>የዚህ ክፍል አባላትን የማረጋገጥ ፈቃድ (Member Authorizer)</span>
+                        </div>
+                      )}
 
                       {/* Workload Badge */}
-                      <div className="p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs mb-2">
-                        <span className="text-slate-500">የአሁን የሥራ ጫና፦</span>
-                        <div className="flex items-center gap-1.5">
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                              workload.activeTaskCount === 0
-                                ? 'bg-slate-100 text-slate-600'
-                                : workload.activeTaskCount <= 2
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : workload.activeTaskCount === 3
-                                ? 'bg-amber-100 text-amber-800'
-                                : 'bg-rose-100 text-rose-800'
-                            }`}
-                          >
-                            {workload.activeTaskCount} ንቁ ሥራዎች
-                          </span>
+                      {!memberAuthOnly && (
+                        <div className="p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs mb-2">
+                          <span className="text-slate-500">የአሁን የሥራ ጫና፦</span>
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                                workload.activeTaskCount === 0
+                                  ? 'bg-slate-100 text-slate-600'
+                                  : workload.activeTaskCount <= 2
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : workload.activeTaskCount === 3
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-rose-100 text-rose-800'
+                              }`}
+                            >
+                              {workload.activeTaskCount} ንቁ ሥራዎች
+                            </span>
+                          </div>
                         </div>
-                      </div>
+                      )}
 
                       {member.serviceSkills && member.serviceSkills.length > 0 && (
                         <div className="flex flex-wrap gap-1">
@@ -739,21 +1341,73 @@ export const DepartmentAdminWorkspace: React.FC<{
                       )}
                     </div>
 
-                    <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800 flex items-center justify-between">
+                    <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
                       <span className="text-[10px] text-slate-400">የጸደቀበት፦ {member.approvedAt || member.createdAt}</span>
 
-                      {/* Super admin or dept admin can suspend */}
-                      {member.role !== 'ADMIN' && (
-                        <button
-                          onClick={() => {
-                            setSuspendingMembership(member);
-                            setSuspensionReasonText('');
-                          }}
-                          className="text-[11px] text-amber-700 dark:text-amber-400 hover:underline font-bold"
-                        >
-                          አግድ (Suspend)
-                        </button>
-                      )}
+                      <div className="flex flex-wrap items-center gap-2.5">
+                        {isSuperAdmin && member.role !== 'ADMIN' && (
+                          <button
+                            type="button"
+                            disabled={togglingAuthId === member.id}
+                            onClick={async () => {
+                              setTogglingAuthId(member.id);
+                              try {
+                                await toggleMemberApprovalAuthority(
+                                  member.id,
+                                  !member.canApproveMembers
+                                );
+                              } finally {
+                                setTogglingAuthId(null);
+                              }
+                            }}
+                            className={`text-[11px] font-bold hover:underline disabled:opacity-50 ${
+                              member.canApproveMembers
+                                ? 'text-rose-700 dark:text-rose-400'
+                                : 'text-emerald-700 dark:text-emerald-400'
+                            }`}
+                          >
+                            {togglingAuthId === member.id
+                              ? 'በማስቀመጥ ላይ...'
+                              : member.canApproveMembers
+                              ? 'አባል የማጽደቅ ፈቃድ አንሳ'
+                              : 'አባል የማጽደቅ ፈቃድ ስጥ (Authorize)'}
+                          </button>
+                        )}
+                        {isSuperAdmin && (
+                          <button
+                            onClick={() => {
+                              setAppointingUser(null);
+                              setApprovingMembership(member);
+                              setAssignedCanApproveForApproval(Boolean(member.canApproveMembers));
+                              const ehudPos = getEhudPositionFromMembership(
+                                member.requestedPosition,
+                                member.role
+                              );
+                              setAssignedEhudPositionForApproval(ehudPos);
+                              setAssignedRoleForApproval(
+                                member.departmentId === 'ehud_merha_gibir'
+                                  ? mapEhudPositionToUserRole(ehudPos)
+                                  : member.role || 'MEMBER'
+                              );
+                            }}
+                            className="text-[11px] text-[#0C4A9E] dark:text-[#7FAFFF] hover:underline font-bold"
+                          >
+                            ሚና ቀይር (Role)
+                          </button>
+                        )}
+                        {/* Super admin, dept admin, or member-authorizer can suspend non-admins */}
+                        {member.role !== 'ADMIN' && (
+                          <button
+                            onClick={() => {
+                              setSuspendingMembership(member);
+                              setSuspensionReasonText('');
+                            }}
+                            className="text-[11px] text-amber-700 dark:text-amber-400 hover:underline font-bold"
+                          >
+                            አግድ (Suspend)
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
@@ -1062,35 +1716,152 @@ export const DepartmentAdminWorkspace: React.FC<{
         </div>
       )}
 
-      {/* ================= MODAL: APPROVE MEMBERSHIP ================= */}
-      {approvingMembership && (
+      {/* ================= MODAL: APPROVE MEMBERSHIP OR APPOINT REGISTERED USER ================= */}
+      {(approvingMembership || appointingUser) && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="w-full max-w-md bg-white dark:bg-[#111D30] rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl p-6">
             <h3 className="text-base font-bold font-serif-ethiopic text-slate-900 dark:text-white mb-1">
-              የአባልነት ማመልከቻ ማጽደቅ
+              {approvingMembership?.status === 'APPROVED'
+                ? 'የአባል የክፍል ሚና ማስተካከያ'
+                : 'የአባልነት ማመልከቻ ማጽደቅ'}
             </h3>
-            <p className="text-xs text-slate-500 mb-4">
-              ለአመልካቹ <strong className="text-slate-800 dark:text-slate-200">{approvingMembership.userName}</strong> በ«{currentDeptInfo?.titleAmharic}» ውስጥ ተገቢውን ሚና ይመድቡ።
+            <p className="text-xs text-slate-500 mb-3">
+              ለአመልካቹ{' '}
+              <strong className="text-slate-800 dark:text-slate-200">
+                {approvingMembership?.userName || appointingUser?.fullName}
+              </strong>{' '}
+              በ«
+              {approvingMembership
+                ? approvingMembership.departmentName
+                : currentDeptInfo?.titleAmharic}
+              » ውስጥ ተገቢውን ሚና ይመድቡ።
             </p>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  የክፍሉ ሚና (Departmental Role) *
-                </label>
-                <select
-                  value={assignedRoleForApproval}
-                  onChange={(e) => setAssignedRoleForApproval(e.target.value as UserRole)}
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
-                >
-                  <option value="MEMBER">አባል / ተጠቃሚ (Member)</option>
-                  <option value="CONTRIBUTOR">ደራሲ / አቅራቢ (Contributor)</option>
-                  <option value="REVIEWER">ገምጋሚ / ኤዲተር (Reviewer)</option>
-                  {isSuperAdmin && (
-                    <option value="ADMIN">የክፍሉ አስተዳዳሪ (Department Admin)</option>
-                  )}
-                </select>
+            {((approvingMembership?.sundaySchoolId || appointingUser?.sundaySchoolId) ||
+              (approvingMembership?.requestedPosition || appointingUser?.requestedPosition)) && (
+              <div className="mb-3 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] space-y-1">
+                {(approvingMembership?.sundaySchoolId || appointingUser?.sundaySchoolId) && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">መታወቂያ ቁጥር፦</span>
+                    <span className="font-mono font-bold text-[#0C4A9E] dark:text-[#7FAFFF]">
+                      {approvingMembership?.sundaySchoolId || appointingUser?.sundaySchoolId}
+                    </span>
+                  </div>
+                )}
+                {(approvingMembership?.requestedPosition || appointingUser?.requestedPosition) && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">የተጠየቀ የክፍል ሚና፦</span>
+                    <span className="font-bold text-slate-800 dark:text-slate-200">
+                      {
+                        EHUD_DEPARTMENT_POSITIONS[
+                          (approvingMembership?.requestedPosition ||
+                            appointingUser?.requestedPosition)!
+                        ]?.rank
+                      }
+                      ኛ.{' '}
+                      {
+                        EHUD_DEPARTMENT_POSITIONS[
+                          (approvingMembership?.requestedPosition ||
+                            appointingUser?.requestedPosition)!
+                        ]?.amharicTitle
+                      }
+                    </span>
+                  </div>
+                )}
               </div>
+            )}
+
+            <div className="space-y-4">
+              {(approvingMembership?.departmentId || activeDepartment) === 'ehud_merha_gibir' ? (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                    የክፍሉ ሚና (Department Role) *
+                  </label>
+                  <div className="grid grid-cols-1 gap-2">
+                    {(['DEPARTMENT_HEAD', 'MIKITIL_HEAD', 'MEMBER'] as EhudDepartmentPosition[]).map(
+                      (posKey) => {
+                        if (posKey === 'DEPARTMENT_HEAD' && !isSuperAdmin) return null;
+                        const pos = EHUD_DEPARTMENT_POSITIONS[posKey];
+                        const isSelected = assignedEhudPositionForApproval === posKey;
+                        return (
+                          <button
+                            key={posKey}
+                            type="button"
+                            onClick={() => {
+                              setAssignedEhudPositionForApproval(posKey);
+                              setAssignedRoleForApproval(mapEhudPositionToUserRole(posKey));
+                            }}
+                            className={`p-3 rounded-xl border text-left transition-all flex items-center justify-between gap-2 ${
+                              isSelected
+                                ? 'border-[#0C4A9E] dark:border-[#7FAFFF] bg-blue-50/80 dark:bg-blue-950/40 ring-1 ring-[#0C4A9E]'
+                                : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 hover:border-slate-300'
+                            }`}
+                          >
+                            <div>
+                              <div className="text-xs font-bold text-slate-900 dark:text-white">
+                                {pos.rank}ኛ. {pos.amharicTitle} ({pos.englishTitle})
+                              </div>
+                              <div className="text-[10px] text-slate-500 dark:text-slate-400">
+                                {pos.description}
+                              </div>
+                            </div>
+                            {isSelected && (
+                              <CheckCircle2 className="w-4 h-4 text-[#0C4A9E] dark:text-[#7FAFFF] shrink-0" />
+                            )}
+                          </button>
+                        );
+                      }
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    የክፍሉ ሚና (Departmental Role) *
+                  </label>
+                  <select
+                    value={assignedRoleForApproval}
+                    onChange={(e) => setAssignedRoleForApproval(e.target.value as UserRole)}
+                    className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
+                  >
+                    <option value="MEMBER">አባል / ተጠቃሚ (Member)</option>
+                    <option value="CONTRIBUTOR">ደራሲ / አቅራቢ (Contributor)</option>
+                    <option value="REVIEWER">ገምጋሚ / ኤዲተር (Reviewer)</option>
+                    {isSuperAdmin && (
+                      <option value="ADMIN">የክፍሉ አስተዳዳሪ (Department Admin)</option>
+                    )}
+                  </select>
+                </div>
+              )}
+
+              {isSuperAdmin && (
+                <label className="flex items-start gap-2.5 p-3 rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50/60 dark:bg-emerald-950/30 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={
+                      assignedRoleForApproval === 'ADMIN' ||
+                      ((approvingMembership?.departmentId || activeDepartment) === 'ehud_merha_gibir' &&
+                        assignedEhudPositionForApproval === 'DEPARTMENT_HEAD') ||
+                      assignedCanApproveForApproval
+                    }
+                    disabled={
+                      assignedRoleForApproval === 'ADMIN' ||
+                      ((approvingMembership?.departmentId || activeDepartment) === 'ehud_merha_gibir' &&
+                        assignedEhudPositionForApproval === 'DEPARTMENT_HEAD')
+                    }
+                    onChange={(e) => setAssignedCanApproveForApproval(e.target.checked)}
+                    className="mt-0.5 rounded text-emerald-600 focus:ring-[#B88500]"
+                  />
+                  <div className="text-[11px] leading-snug">
+                    <div className="font-bold text-emerald-900 dark:text-emerald-200">
+                      የክፍሉን አባላት ማረጋገጥና ማጽደቅ ይችላል (Member Authorizer)
+                    </div>
+                    <div className="text-emerald-700 dark:text-emerald-300/80">
+                      በ«{approvingMembership ? approvingMembership.departmentName : currentDeptInfo?.shortTitleAmharic}» ውስጥ ብቻ አባላትን እንዲያጸድቅ ሥልጣን ይሰጣል (ለሌሎች ክፍሎች አይሰራም)።
+                    </div>
+                  </div>
+                </label>
+              )}
 
               {actionError && (
                 <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 font-medium">
@@ -1112,6 +1883,7 @@ export const DepartmentAdminWorkspace: React.FC<{
                   onClick={() => {
                     setActionError(null);
                     setApprovingMembership(null);
+                    setAppointingUser(null);
                   }}
                   className="flex-1 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold"
                 >
@@ -1123,12 +1895,36 @@ export const DepartmentAdminWorkspace: React.FC<{
                   onClick={async () => {
                     setIsSubmitting(true);
                     setActionError(null);
+                    const isApprovalEhud =
+                      (approvingMembership?.departmentId || activeDepartment) === 'ehud_merha_gibir';
+                    const roleToSave = isApprovalEhud
+                      ? mapEhudPositionToUserRole(assignedEhudPositionForApproval)
+                      : assignedRoleForApproval;
+                    const ehudPosToSave = isApprovalEhud
+                      ? assignedEhudPositionForApproval
+                      : undefined;
+                    const canApproveToSave = isSuperAdmin
+                      ? roleToSave === 'ADMIN' || assignedCanApproveForApproval
+                      : undefined;
                     try {
-                      await approveMembershipRequest(
-                        approvingMembership.id,
-                        assignedRoleForApproval
-                      );
-                      setApprovingMembership(null);
+                      if (approvingMembership) {
+                        await approveMembershipRequest(
+                          approvingMembership.id,
+                          roleToSave,
+                          ehudPosToSave,
+                          canApproveToSave
+                        );
+                        setApprovingMembership(null);
+                      } else if (appointingUser) {
+                        await appointUserToDepartment(
+                          appointingUser,
+                          activeDepartment,
+                          roleToSave,
+                          ehudPosToSave,
+                          canApproveToSave
+                        );
+                        setAppointingUser(null);
+                      }
                     } catch (err: any) {
                       setActionError(err?.message || 'ማጽደቅ አልተቻለም። እባክዎ እንደገና ይሞክሩ።');
                     } finally {

@@ -54,10 +54,12 @@ export const AppContent: React.FC = () => {
     activeDepartment,
     setActiveDepartment,
     isDeptAdmin,
+    canApproveDeptMembers,
     hasPendingApproval,
     isSuperAdmin,
     approvedDepartmentsList,
     activeMembership,
+    canSwitchDepartments,
   } = useArchive();
 
   const [workspaceMode, setWorkspaceMode] = useState<'WORKSPACE' | 'HERITAGE'>('WORKSPACE');
@@ -217,7 +219,7 @@ export const AppContent: React.FC = () => {
         currentTab={activeTab}
         onTabSelected={handleTabSelected}
         onCreateWorkClick={() => handleOpenCreateWork()}
-        onOpenDepartmentsHub={() => setShowDepartmentsModal(true)}
+        onOpenDepartmentsHub={canSwitchDepartments ? () => setShowDepartmentsModal(true) : undefined}
       />
 
       {/* Main Content Area */}
@@ -264,8 +266,8 @@ export const AppContent: React.FC = () => {
               {activeTab === 'HOME' && (
                 <div className="space-y-4 max-w-7xl mx-auto px-3 sm:px-6 py-4">
                   {/* Top View Mode Switcher between Department Workspace and Heritage Overview */}
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
-                    <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
+                    <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
                         onClick={() => setWorkspaceMode('WORKSPACE')}
@@ -292,7 +294,7 @@ export const AppContent: React.FC = () => {
                   </div>
 
                   {workspaceMode === 'WORKSPACE' ? (
-                    isDeptAdmin ? (
+                    isDeptAdmin || canApproveDeptMembers ? (
                       <DepartmentAdminWorkspace
                         onOpenWorkClick={handleOpenWork}
                         onOpenScheduleDetails={() => {}}
@@ -306,9 +308,13 @@ export const AppContent: React.FC = () => {
                   ) : (
                     activeDepartment === 'ehud_merha_gibir' ? (
                       <EhudMerhaGibirScreen
-                        onSwitchToKinetibeb={() => setActiveDepartment('kinetibeb')}
+                        onSwitchToKinetibeb={
+                          canSwitchDepartments ? () => setActiveDepartment('kinetibeb') : undefined
+                        }
                         onOpenWorkClick={handleOpenWork}
-                        onOpenDepartmentsHub={() => setShowDepartmentsModal(true)}
+                        onOpenDepartmentsHub={
+                          canSwitchDepartments ? () => setShowDepartmentsModal(true) : undefined
+                        }
                       />
                     ) : activeDepartment === 'kinetibeb' ? (
                       <HomeScreen
@@ -316,14 +322,24 @@ export const AppContent: React.FC = () => {
                         onCategoryClick={handleOpenCategory}
                         onSearchClick={() => handleTabSelected('SEARCH')}
                         onCreateWorkClick={handleOpenCreateWork}
-                        onOpenDepartmentsHub={() => setShowDepartmentsModal(true)}
+                        onOpenDepartmentsHub={
+                          canSwitchDepartments ? () => setShowDepartmentsModal(true) : undefined
+                        }
                       />
                     ) : (
                       <DepartmentPortalScreen
                         departmentId={activeDepartment}
-                        onOpenDepartmentsHub={() => setShowDepartmentsModal(true)}
-                        onSwitchToKinetibeb={() => setActiveDepartment('kinetibeb')}
-                        onSwitchToEhudMerhaGibir={() => setActiveDepartment('ehud_merha_gibir')}
+                        onOpenDepartmentsHub={
+                          canSwitchDepartments ? () => setShowDepartmentsModal(true) : undefined
+                        }
+                        onSwitchToKinetibeb={
+                          canSwitchDepartments ? () => setActiveDepartment('kinetibeb') : undefined
+                        }
+                        onSwitchToEhudMerhaGibir={
+                          canSwitchDepartments
+                            ? () => setActiveDepartment('ehud_merha_gibir')
+                            : undefined
+                        }
                         onNavigateToArchive={() => handleTabSelected('ARCHIVE')}
                         onNavigateToSearch={() => handleTabSelected('SEARCH')}
                         onNavigateToEvents={() => handleTabSelected('EVENTS')}
@@ -408,11 +424,13 @@ export const AppContent: React.FC = () => {
       />
 
       {/* All Sunday School Departments Directory & Switcher Modal */}
-      <AllDepartmentsModal
-        isOpen={showDepartmentsModal}
-        onClose={() => setShowDepartmentsModal(false)}
-        onSelectDepartment={(dept) => setActiveDepartment(dept)}
-      />
+      {canSwitchDepartments && (
+        <AllDepartmentsModal
+          isOpen={showDepartmentsModal}
+          onClose={() => setShowDepartmentsModal(false)}
+          onSelectDepartment={(dept) => setActiveDepartment(dept)}
+        />
+      )}
     </div>
   );
 };

@@ -268,6 +268,21 @@
           "description": "Department affiliation",
           "maxLength": 150
         },
+        "departmentId": {
+          "type": "string",
+          "description": "Target department identifier",
+          "maxLength": 64
+        },
+        "sundaySchoolId": {
+          "type": "string",
+          "description": "Sunday School Identification Number",
+          "maxLength": 50
+        },
+        "requestedPosition": {
+          "type": "string",
+          "description": "Requested role division for Sunday Program department",
+          "enum": ["DEPARTMENT_HEAD", "MIKITIL_HEAD", "MEMBER"]
+        },
         "joinedDate": {
           "type": "string",
           "description": "Membership join date",
@@ -333,10 +348,38 @@
           "description": "Title of the target department",
           "maxLength": 150
         },
+        "division": {
+          "type": "string",
+          "description": "Sunday school age division",
+          "enum": ["children", "intermediates", "youth"]
+        },
+        "sundaySchoolId": {
+          "type": "string",
+          "description": "Sunday School Identification Number",
+          "maxLength": 50
+        },
+        "requestedPosition": {
+          "type": "string",
+          "description": "Requested role division for Sunday Program department",
+          "enum": ["DEPARTMENT_HEAD", "MIKITIL_HEAD", "MEMBER"]
+        },
+        "serviceSkills": {
+          "type": "array",
+          "description": "List of service skills"
+        },
+        "preferredResponsibilities": {
+          "type": "string",
+          "description": "Preferred service responsibilities",
+          "maxLength": 500
+        },
         "role": {
           "type": "string",
           "description": "Department assigned role",
           "enum": ["MEMBER", "CONTRIBUTOR", "REVIEWER", "EDITOR", "ADMIN"]
+        },
+        "canApproveMembers": {
+          "type": "boolean",
+          "description": "Department-scoped authority to confirm and authorize members of this department only"
         },
         "status": {
           "type": "string",
@@ -363,6 +406,16 @@
           "description": "Timestamp of approval",
           "maxLength": 50
         },
+        "statusUpdatedAt": {
+          "type": "string",
+          "description": "Timestamp of last status update",
+          "maxLength": 50
+        },
+        "inviteId": {
+          "type": "string",
+          "description": "Optional pre-approval invite ID used to claim membership",
+          "maxLength": 128
+        },
         "createdAt": {
           "type": "string",
           "description": "Request creation timestamp",
@@ -370,6 +423,73 @@
         }
       },
       "required": ["id", "userId", "userEmail", "userName", "departmentId", "role", "status"]
+    },
+    "departmentInvite": {
+      "title": "DepartmentInvite",
+      "description": "Administrator pre-approval or invitation record keyed by email for a specific department",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique invite identifier",
+          "maxLength": 128
+        },
+        "emailLower": {
+          "type": "string",
+          "description": "Lowercase email address of the invited user",
+          "maxLength": 150
+        },
+        "fullName": {
+          "type": "string",
+          "description": "Full name of the invited member",
+          "maxLength": 150
+        },
+        "departmentId": {
+          "type": "string",
+          "description": "Department ID",
+          "maxLength": 64
+        },
+        "departmentName": {
+          "type": "string",
+          "description": "Department Amharic title",
+          "maxLength": 150
+        },
+        "division": {
+          "type": "string",
+          "description": "Age division",
+          "enum": ["children", "intermediates", "youth"]
+        },
+        "sundaySchoolId": {
+          "type": "string",
+          "description": "Sunday School Identification Number",
+          "maxLength": 50
+        },
+        "requestedPosition": {
+          "type": "string",
+          "description": "Department position",
+          "enum": ["DEPARTMENT_HEAD", "MIKITIL_HEAD", "MEMBER"]
+        },
+        "role": {
+          "type": "string",
+          "description": "Pre-approved role",
+          "enum": ["MEMBER", "CONTRIBUTOR", "REVIEWER", "EDITOR", "ADMIN"]
+        },
+        "canApproveMembers": {
+          "type": "boolean",
+          "description": "Grants member-authorization authority scoped to this department only when invite is claimed"
+        },
+        "status": {
+          "type": "string",
+          "description": "Invite lifecycle state",
+          "enum": ["ACTIVE", "CLAIMED", "CANCELLED"]
+        },
+        "invitedBy": {
+          "type": "string",
+          "description": "Admin UID who issued pre-approval",
+          "maxLength": 128
+        }
+      },
+      "required": ["id", "emailLower", "fullName", "departmentId", "role", "status", "invitedBy"]
     },
     "scheduleAssignment": {
       "title": "ScheduleTaskAssignment",
@@ -518,6 +638,10 @@
     "/department_notifications/{notificationId}": {
       "schema": "departmentNotification",
       "description": "Workflow notifications for department members"
+    },
+    "/department_invites/{inviteId}": {
+      "schema": "departmentInvite",
+      "description": "Email-based administrator pre-approvals for department memberships"
     }
   }
 }

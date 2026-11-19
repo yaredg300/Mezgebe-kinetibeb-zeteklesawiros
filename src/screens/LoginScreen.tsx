@@ -20,9 +20,18 @@ import {
   Layers,
   Shield,
   Sparkles,
+  Hash,
 } from 'lucide-react';
 import { useArchive } from '../context/ArchiveContext';
-import { DIVISIONS, USER_ROLES, UserRole, SundaySchoolDepartment, SundaySchoolDivision } from '../types';
+import {
+  DIVISIONS,
+  USER_ROLES,
+  UserRole,
+  SundaySchoolDepartment,
+  SundaySchoolDivision,
+  EhudDepartmentPosition,
+  EHUD_DEPARTMENT_POSITIONS,
+} from '../types';
 import { HaragDivider, ManuscriptBox } from '../components/Ornaments';
 
 export const LoginScreen: React.FC<{
@@ -48,6 +57,8 @@ export const LoginScreen: React.FC<{
   const [password, setPassword] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [role, setRole] = useState<UserRole>('CONTRIBUTOR');
+  const [ehudPosition, setEhudPosition] = useState<EhudDepartmentPosition>('MEMBER');
+  const [sundaySchoolId, setSundaySchoolId] = useState<string>('');
   const [registerDivision, setRegisterDivision] = useState<SundaySchoolDivision>(() => {
     return selectedDivision || 'youth';
   });
@@ -60,6 +71,7 @@ export const LoginScreen: React.FC<{
   });
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showSwitchToLoginHint, setShowSwitchToLoginHint] = useState<boolean>(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isLoadingGoogle, setIsLoadingGoogle] = useState<boolean>(false);
@@ -108,9 +120,12 @@ export const LoginScreen: React.FC<{
     setActiveDepartment(deptId);
   };
 
+  const isEhudDept = selectedDeptId === 'ehud_merha_gibir';
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setShowSwitchToLoginHint(false);
     setSuccessMessage(null);
 
     if (!email.trim() || !password.trim()) {
@@ -121,6 +136,18 @@ export const LoginScreen: React.FC<{
     if (isRegisterMode && !fullName.trim()) {
       setErrorMessage('እባክዎ ሙሉ ስምዎን ያስገቡ።');
       return;
+    }
+
+    if (isRegisterMode && isEhudDept) {
+      const trimmedId = sundaySchoolId.trim();
+      if (!trimmedId) {
+        setErrorMessage('እባክዎ የሰንበት ት/ቤት መታወቂያ ቁጥርዎን ያስገቡ።');
+        return;
+      }
+      if (trimmedId.length > 50) {
+        setErrorMessage('የሰንበት ት/ቤት መታወቂያ ቁጥር ከ50 ፊደላት መብለጥ የለበትም።');
+        return;
+      }
     }
 
     if (password.length < 6) {
@@ -135,20 +162,24 @@ export const LoginScreen: React.FC<{
       setActiveDepartment(selectedDeptId);
 
       if (isRegisterMode) {
-        const skillsArray = skillsInput
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean);
+        const skillsArray = isEhudDept
+          ? []
+          : skillsInput
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean);
         // Real Firebase account creation with department membership registration
         await registerWithEmail(
           email,
           password,
           fullName,
-          role,
+          isEhudDept ? 'MEMBER' : role,
           selectedDeptId,
           registerDivision,
           skillsArray,
-          responsibilitiesInput
+          isEhudDept ? '' : responsibilitiesInput,
+          isEhudDept ? sundaySchoolId.trim() : undefined,
+          isEhudDept ? ehudPosition : undefined
         );
         setSuccessMessage(`አካውንትዎ ተፈጥሯል! የአባልነት ጥያቄዎ ለ«${selectedDeptInfo?.titleAmharic || 'ክፍል'}» አስተዳዳሪ ተልኳል...`);
       } else {
@@ -161,7 +192,24 @@ export const LoginScreen: React.FC<{
         onLoginSuccess(selectedDeptId);
       }, 700);
     } catch (err: any) {
-      console.error('Auth error:', err);
+      const code = err?.code || '';
+      if (code === 'auth/email-already-in-use') {
+        setShowSwitchToLoginHint(true);
+      } else {
+        setShowSwitchToLoginHint(false);
+      }
+      if (
+        code === 'auth/email-already-in-use' ||
+        code === 'auth/wrong-password' ||
+        code === 'auth/invalid-credential' ||
+        code === 'auth/user-not-found' ||
+        code === 'auth/weak-password' ||
+        code === 'auth/invalid-email'
+      ) {
+        console.warn('Auth notice:', code);
+      } else {
+        console.error('Auth error:', err);
+      }
       setErrorMessage(mapAuthErrorToAmharic(err));
     } finally {
       setIsSubmitting(false);
@@ -381,9 +429,26 @@ export const LoginScreen: React.FC<{
 
           {/* Error Banner */}
           {errorMessage && (
-            <div className="mb-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-700 text-xs font-medium text-rose-800 dark:text-rose-300 flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
-              <span>{errorMessage}</span>
+            <div className="mb-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-700 text-xs font-medium text-rose-800 dark:text-rose-300 space-y-2">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
+                <span>{errorMessage}</span>
+              </div>
+              {showSwitchToLoginHint && (
+                <div className="pl-6">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsRegisterMode(false);
+                      setErrorMessage(null);
+                      setShowSwitchToLoginHint(false);
+                    }}
+                    className="px-3 py-1 rounded-lg bg-[#0C4A9E] hover:bg-[#072958] text-white text-[11px] font-bold transition-colors"
+                  >
+                    ወደ «ግባ (Login)» ቀይር →
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -504,46 +569,117 @@ export const LoginScreen: React.FC<{
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    የተጠየቀ የአገልግሎት ሚና (Requested Role)
-                  </label>
-                  <select
-                    value={role}
-                    onChange={(e) => setRole(e.target.value as UserRole)}
-                    className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
-                  >
-                    <option value="CONTRIBUTOR">ደራሲ / አቅራቢ (Contributor / Writer)</option>
-                    <option value="MEMBER">አባል / ተጠቃሚ (Member)</option>
-                    <option value="REVIEWER">ገምጋሚ / ኤዲተር (Reviewer)</option>
-                  </select>
-                </div>
+                {isEhudDept ? (
+                  <>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        የሰንበት ት/ቤት መታወቂያ ቁጥር (Sunday School ID Number) *
+                      </label>
+                      <div className="relative">
+                        <Hash className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                        <input
+                          type="text"
+                          required
+                          maxLength={50}
+                          value={sundaySchoolId}
+                          onChange={(e) => setSundaySchoolId(e.target.value)}
+                          placeholder="ለምሳሌ፡ TS-2019-042 ወይም 0124/19"
+                          className="w-full pl-9 pr-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
+                        />
+                      </div>
+                    </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    የአገልግሎት ክህሎቶች (በኮማ ይለዩ)
-                  </label>
-                  <input
-                    type="text"
-                    value={skillsInput}
-                    onChange={(e) => setSkillsInput(e.target.value)}
-                    placeholder="ለምሳሌ፡ መዝሙር፣ ቲያትር፣ የሰዓት ቁጥጥር..."
-                    className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
-                  />
-                </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                        የተጠየቀ የክፍል ሚና / ምድብ (Requested Role Division) *
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        {(['DEPARTMENT_HEAD', 'MIKITIL_HEAD', 'MEMBER'] as EhudDepartmentPosition[]).map(
+                          (posKey) => {
+                            const pos = EHUD_DEPARTMENT_POSITIONS[posKey];
+                            const isSelectedPos = ehudPosition === posKey;
+                            return (
+                              <button
+                                key={posKey}
+                                type="button"
+                                onClick={() => setEhudPosition(posKey)}
+                                className={`p-2.5 rounded-xl border text-left transition-all flex flex-col justify-between ${
+                                  isSelectedPos
+                                    ? 'border-[#0C4A9E] dark:border-[#7FAFFF] bg-blue-50/80 dark:bg-blue-950/40 ring-1 ring-[#0C4A9E]'
+                                    : 'border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/60 hover:border-slate-300'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-1 mb-1">
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
+                                      isSelectedPos
+                                        ? 'bg-[#0C4A9E] text-white'
+                                        : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                                    }`}
+                                  >
+                                    {pos.rank}ኛ
+                                  </span>
+                                  {isSelectedPos && (
+                                    <CheckCircle className="w-3.5 h-3.5 text-[#0C4A9E] dark:text-[#7FAFFF]" />
+                                  )}
+                                </div>
+                                <div className="text-xs font-bold text-slate-900 dark:text-slate-100 font-serif-ethiopic">
+                                  {pos.amharicTitle}
+                                </div>
+                                <div className="text-[10px] text-slate-500 dark:text-slate-400">
+                                  {pos.englishTitle}
+                                </div>
+                              </button>
+                            );
+                          }
+                        )}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        የተጠየቀ የአገልግሎት ሚና (Requested Role)
+                      </label>
+                      <select
+                        value={role}
+                        onChange={(e) => setRole(e.target.value as UserRole)}
+                        className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
+                      >
+                        <option value="CONTRIBUTOR">ደራሲ / አቅራቢ (Contributor / Writer)</option>
+                        <option value="MEMBER">አባል / ተጠቃሚ (Member)</option>
+                        <option value="REVIEWER">ገምጋሚ / ኤዲተር (Reviewer)</option>
+                      </select>
+                    </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    የሚመርጡት ኃላፊነት
-                  </label>
-                  <input
-                    type="text"
-                    value={responsibilitiesInput}
-                    onChange={(e) => setResponsibilitiesInput(e.target.value)}
-                    placeholder="ለምሳሌ፡ የመድረክ መሪነት፣ የጽሑፍ ዝግጅት..."
-                    className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
-                  />
-                </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        የአገልግሎት ክህሎቶች (በኮማ ይለዩ)
+                      </label>
+                      <input
+                        type="text"
+                        value={skillsInput}
+                        onChange={(e) => setSkillsInput(e.target.value)}
+                        placeholder="ለምሳሌ፡ መዝሙር፣ ቲያትር፣ የሰዓት ቁጥጥር..."
+                        className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        የሚመርጡት ኃላፊነት
+                      </label>
+                      <input
+                        type="text"
+                        value={responsibilitiesInput}
+                        onChange={(e) => setResponsibilitiesInput(e.target.value)}
+                        placeholder="ለምሳሌ፡ የመድረክ መሪነት፣ የጽሑፍ ዝግጅት..."
+                        className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
+                      />
+                    </div>
+                  </>
+                )}
               </div>
             )}
 

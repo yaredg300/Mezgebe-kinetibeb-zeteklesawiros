@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import {
   SundaySchoolDepartment,
   SundaySchoolDivision,
@@ -25,6 +25,9 @@ import {
   ScheduleTaskStatus,
   ScheduleTaskAssignment,
   DepartmentNotification,
+  EhudDepartmentPosition,
+  EHUD_DEPARTMENT_POSITIONS,
+  DepartmentInvite,
 } from '../types';
 import {
   SUNDAY_PLAN_PDF_PACKAGES,
@@ -47,7 +50,15 @@ import {
   INITIAL_SCHEDULE_ASSIGNMENTS,
   INITIAL_DEPARTMENT_NOTIFICATIONS,
 } from '../data/departmentMembershipData';
-import { db, auth, storage, googleProvider, getCachedGoogleToken, setCachedGoogleToken } from '../firebase/config';
+import {
+  db,
+  auth,
+  storage,
+  googleProvider,
+  googleDriveProvider,
+  getCachedGoogleToken,
+  setCachedGoogleToken,
+} from '../firebase/config';
 import {
   collection,
   doc,
@@ -932,7 +943,9 @@ interface ArchiveContextType {
     requestedDeptId?: string,
     division?: SundaySchoolDivision,
     serviceSkills?: string[],
-    preferredResponsibilities?: string
+    preferredResponsibilities?: string,
+    sundaySchoolId?: string,
+    requestedPosition?: EhudDepartmentPosition
   ) => Promise<void>;
   loginWithEmail: (email: string, password: string) => Promise<void>;
   resetPasswordEmail: (email: string) => Promise<void>;
@@ -1006,6 +1019,9 @@ interface ArchiveContextType {
 
   // Department Isolation, Memberships & Role Scoping
   departmentMemberships: DepartmentMembership[];
+  departmentInvites: DepartmentInvite[];
+  registeredUsers: UserProfile[];
+  registeredUsersError: string | null;
   scheduleAssignments: ScheduleTaskAssignment[];
   departmentNotifications: DepartmentNotification[];
   isSuperAdmin: boolean;
@@ -1014,15 +1030,43 @@ interface ArchiveContextType {
   approvedDepartmentsList: DepartmentInfo[];
   activeMembership: DepartmentMembership | null;
   isDeptAdmin: boolean;
+  canApproveDeptMembers: boolean;
   canSwitchDepartments: boolean;
   hasPendingApproval: boolean;
   requestDepartmentMembership: (
     deptId: string,
     division?: SundaySchoolDivision,
     serviceSkills?: string[],
-    preferredResponsibilities?: string
+    preferredResponsibilities?: string,
+    sundaySchoolId?: string,
+    requestedPosition?: EhudDepartmentPosition
   ) => Promise<DepartmentMembership>;
-  approveMembershipRequest: (membershipId: string, assignedRole: UserRole) => Promise<void>;
+  approveMembershipRequest: (
+    membershipId: string,
+    assignedRole: UserRole,
+    ehudPosition?: EhudDepartmentPosition,
+    canApproveMembers?: boolean
+  ) => Promise<void>;
+  appointUserToDepartment: (
+    userProfile: UserProfile,
+    deptId: string,
+    assignedRole: UserRole,
+    ehudPosition?: EhudDepartmentPosition,
+    canApproveMembers?: boolean
+  ) => Promise<void>;
+  toggleMemberApprovalAuthority: (membershipId: string, allow: boolean) => Promise<void>;
+  createDepartmentInvite: (data: {
+    email: string;
+    fullName: string;
+    departmentId: string;
+    role: UserRole;
+    division?: SundaySchoolDivision;
+    sundaySchoolId?: string;
+    requestedPosition?: EhudDepartmentPosition;
+    canApproveMembers?: boolean;
+  }) => Promise<{ invite: DepartmentInvite; immediatelyApproved: boolean }>;
+  cancelDepartmentInvite: (inviteId: string) => Promise<void>;
+  refreshMembershipAndInvites: () => Promise<void>;
   rejectMembershipRequest: (membershipId: string, rejectionReason: string) => Promise<void>;
   suspendMembership: (membershipId: string, suspensionReason?: string) => Promise<void>;
   createScheduleAssignment: (
@@ -1082,6 +1126,18 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
   });
 
   const setActiveDepartment = (dept: SundaySchoolDepartment) => {
+    // Non-Super-Admin signed-in users with approved memberships cannot switch into unjoined departments
+    if (firebaseUser && !isSuperAdmin) {
+      const userApprovedDepts = departmentMemberships.filter(
+        (m) => m.userId === firebaseUser.uid && m.status === 'APPROVED'
+      );
+      if (
+        userApprovedDepts.length > 0 &&
+        !userApprovedDepts.some((m) => m.departmentId === dept)
+      ) {
+        return;
+      }
+    }
     setActiveDepartmentState(dept);
     try {
       localStorage.setItem('mezgebe_active_dept', dept);
@@ -1156,13 +1212,15 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
   });
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [isAuthReady, setIsAuthReady] = useState<boolean>(false);
+  const [isAdminDocVerified, setIsAdminDocVerified] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const isRegisteringRef = useRef<boolean>(false);
 
   const [currentUser, setCurrentUser] = useState<UserProfile>({
     id: 'u_default',
     fullName: 'ተጠቃሚ (Guest)',
     email: '',
-    role: 'ADMIN',
+    role: 'MEMBER',
     department: 'የሰንበት ት/ቤት አስተዳደር እና ኪነጥበብ ክፍል',
     joinedDate: '፳፻፲፮ ዓ.ም',
     myWorksCount: 0,
@@ -1180,6 +1238,9 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
     return INITIAL_DEPARTMENT_MEMBERSHIPS;
   });
+  const [departmentInvites, setDepartmentInvites] = useState<DepartmentInvite[]>([]);
+  const [registeredUsers, setRegisteredUsers] = useState<UserProfile[]>([]);
+  const [registeredUsersError, setRegisteredUsersError] = useState<string | null>(null);
 
   // Schedule Task Assignments state
   const [scheduleAssignments, setScheduleAssignments] = useState<ScheduleTaskAssignment[]>(() => {
@@ -1212,7 +1273,7 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const connectGoogleDrive = async (): Promise<string | null> => {
     try {
-      const result = await signInWithPopup(auth, googleProvider);
+      const result = await signInWithPopup(auth, googleDriveProvider);
       const credential = GoogleAuthProvider.credentialFromResult(result);
       if (credential?.accessToken) {
         setCachedGoogleToken(credential.accessToken);
@@ -1271,24 +1332,45 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // 1. Firebase Auth listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setFirebaseUser(user);
-      setIsAuthReady(true);
       if (user) {
-        const isMasterAdmin =
-          user.email === 'yaredcotm@gmail.com' || user.email === 'admin@teklesawiros.org';
+        const isVerifiedMasterEmail = Boolean(
+          user.emailVerified &&
+            (user.email === 'goferconstruction@gmail.com' ||
+              user.email === 'yaredcotm@gmail.com' ||
+              user.email === 'admin@teklesawiros.org')
+        );
 
-        let loadedRole: UserRole = isMasterAdmin ? 'ADMIN' : 'CONTRIBUTOR';
+        let hasAdminDoc = false;
+        try {
+          const adminDocSnap = await getDoc(doc(db, 'admins', user.uid));
+          hasAdminDoc = adminDocSnap.exists();
+        } catch {
+          hasAdminDoc = false;
+        }
+        setIsAdminDocVerified(hasAdminDoc);
+
+        const isMasterAdmin = isVerifiedMasterEmail || hasAdminDoc;
+
+        let loadedRole: UserRole = isMasterAdmin ? 'ADMIN' : 'MEMBER';
         let loadedFullName = user.displayName || user.email?.split('@')[0] || 'የኪነጥበብ አባል';
         let loadedDept = 'የተክለ ሣዊሮስ ሰንበት ት/ቤት ኪነጥበብ ክፍል';
-        let loadedJoinedDate = '፳፻፲፮ ዓ.ም';
+        let loadedDeptId: SundaySchoolDepartment | undefined;
+        let loadedSundaySchoolId: string | undefined;
+        let loadedRequestedPosition: EhudDepartmentPosition | undefined;
+        let loadedJoinedDate = '፳፻፲፱ ዓ.ም';
+        let userDocExists = false;
 
         try {
           const userDocSnap = await getDoc(doc(db, 'users', user.uid));
           if (userDocSnap.exists()) {
+            userDocExists = true;
             const data = userDocSnap.data();
             if (data.fullName) loadedFullName = data.fullName;
             if (data.role && !isMasterAdmin) loadedRole = data.role as UserRole;
             if (data.department) loadedDept = data.department;
+            if (data.departmentId) loadedDeptId = data.departmentId as SundaySchoolDepartment;
+            if (data.sundaySchoolId) loadedSundaySchoolId = String(data.sundaySchoolId);
+            if (data.requestedPosition) loadedRequestedPosition = data.requestedPosition as EhudDepartmentPosition;
             if (data.joinedDate) loadedJoinedDate = data.joinedDate;
           }
         } catch {
@@ -1301,6 +1383,9 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
           email: user.email || '',
           role: loadedRole,
           department: loadedDept,
+          departmentId: loadedDeptId,
+          sundaySchoolId: loadedSundaySchoolId,
+          requestedPosition: loadedRequestedPosition,
           joinedDate: loadedJoinedDate,
           myWorksCount: 0,
           mySubmissionsCount: 0,
@@ -1308,23 +1393,24 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
         };
         setCurrentUser(updatedProfile);
 
-        // Sync user doc to Firestore
+        // Only create initial user doc if it does not yet exist and registration is not creating it
         try {
-          await setDoc(
-            doc(db, 'users', user.uid),
-            {
-              id: user.uid,
-              fullName: updatedProfile.fullName,
-              email: updatedProfile.email,
-              role: updatedProfile.role,
-              department: updatedProfile.department,
-              joinedDate: updatedProfile.joinedDate,
-              bookmarks: [],
-            },
-            { merge: true }
-          );
+          if (!userDocExists && !isRegisteringRef.current) {
+            await setDoc(
+              doc(db, 'users', user.uid),
+              sanitizeFirestorePayload({
+                id: user.uid,
+                fullName: updatedProfile.fullName,
+                email: updatedProfile.email,
+                role: isMasterAdmin ? 'ADMIN' : 'MEMBER',
+                department: updatedProfile.department,
+                joinedDate: updatedProfile.joinedDate,
+                bookmarks: [],
+              })
+            );
+          }
 
-          if (isMasterAdmin) {
+          if (isMasterAdmin && !hasAdminDoc) {
             await setDoc(
               doc(db, 'admins', user.uid),
               {
@@ -1333,11 +1419,27 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
               },
               { merge: true }
             );
+            setIsAdminDocVerified(true);
           }
         } catch {
           // Non-blocking user sync
         }
+
+        if (!isRegisteringRef.current && user.email) {
+          await claimMatchingInvitesForUser(
+            user,
+            loadedFullName,
+            loadedSundaySchoolId,
+            loadedRequestedPosition
+          );
+        }
+
+        setFirebaseUser(user);
+        setIsAuthReady(true);
       } else {
+        setFirebaseUser(null);
+        setIsAdminDocVerified(false);
+        setIsAuthReady(true);
         setCurrentUser({
           id: 'u_default',
           fullName: 'ተጠቃሚ (Guest)',
@@ -1350,6 +1452,9 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
           myBookmarksCount: 0,
         });
         setDepartmentMemberships([]);
+        setDepartmentInvites([]);
+        setRegisteredUsers([]);
+        setRegisteredUsersError(null);
         setScheduleAssignments([]);
         setDepartmentNotifications([]);
         try {
@@ -1363,11 +1468,44 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return () => unsubscribe();
   }, []);
 
-  // 2. Real-time Firestore synchronization for Works (Public archive vs admin/reviewer scope)
+  // Master Super Admins & Cross-department access (matches firestore.rules isSuperAdmin() 1-to-1)
+  const isSuperAdmin = Boolean(
+    firebaseUser &&
+      ((firebaseUser.emailVerified &&
+        (firebaseUser.email === 'goferconstruction@gmail.com' ||
+          firebaseUser.email === 'yaredcotm@gmail.com' ||
+          firebaseUser.email === 'admin@teklesawiros.org')) ||
+        isAdminDocVerified)
+  );
+
+  // 2. Real-time Firestore synchronization for Works (Public archive vs dept-scoped manager scope)
   useEffect(() => {
+    const currentMem = firebaseUser
+      ? departmentMemberships.find(
+          (m) => m.id === getCanonicalMembershipId(firebaseUser.uid, activeDepartment)
+        )
+      : null;
+    const isApprovedMemberInDept = currentMem?.status === 'APPROVED';
+    const hasDeptManagePrivilege = Boolean(
+      isSuperAdmin ||
+        (isApprovedMemberInDept &&
+          (currentMem?.role === 'ADMIN' ||
+            currentMem?.canApproveMembers === true ||
+            currentMem?.role === 'REVIEWER' ||
+            currentMem?.role === 'EDITOR'))
+    );
+
     let worksQuery;
-    if (firebaseUser && (currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'REVIEWER')) {
+    if (firebaseUser && isSuperAdmin) {
       worksQuery = collection(db, 'works');
+    } else if (firebaseUser && isApprovedMemberInDept) {
+      worksQuery = hasDeptManagePrivilege
+        ? query(collection(db, 'works'), where('departmentId', '==', activeDepartment))
+        : query(
+            collection(db, 'works'),
+            where('departmentId', '==', activeDepartment),
+            where('status', 'in', ['APPROVED', 'PUBLISHED'])
+          );
     } else {
       worksQuery = query(
         collection(db, 'works'),
@@ -1396,9 +1534,16 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
             fetchedWorks.push(w);
           });
           setWorks(fetchedWorks);
-        } else {
-          // If Firestore collection is empty, seed initial works
+        } else if (firebaseUser && isSuperAdmin) {
+          // Only super admin seeds initial works if Firestore collection is empty
           seedInitialFirestoreData();
+        } else if (firebaseUser && !isSuperAdmin) {
+          // Strict department isolation when Firestore works collection for this dept is empty
+          setWorks(
+            INITIAL_WORKS.filter((w) =>
+              w.departmentId ? w.departmentId === activeDepartment : activeDepartment === 'kinetibeb'
+            ).map((w) => (savedBookmarks.includes(w.id) ? { ...w, isBookmarked: true } : w))
+          );
         }
       },
       (error) => {
@@ -1411,68 +1556,7 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
 
     return () => unsubscribe();
-  }, [firebaseUser, currentUser.role]);
-
-  // 3. Real-time Firestore synchronization for Members
-  useEffect(() => {
-    const membersCollectionRef = collection(db, 'members');
-    const unsubscribe = onSnapshot(
-      membersCollectionRef,
-      (snapshot) => {
-        if (!snapshot.empty) {
-          const fetchedMembers: ChurchMember[] = [];
-          snapshot.forEach((docSnap) => {
-            fetchedMembers.push(docSnap.data() as ChurchMember);
-          });
-          setMembers(fetchedMembers);
-        }
-      },
-      (error) => {
-        try {
-          handleFirestoreError(error, OperationType.LIST, 'members');
-        } catch (err) {
-          console.warn('Operating in offline/cached mode for members:', err);
-        }
-      }
-    );
-
-    return () => unsubscribe();
-  }, []);
-
-  // 4. Real-time Firestore synchronization for Events
-  useEffect(() => {
-    const eventsCollectionRef = collection(db, 'events');
-    const unsubscribe = onSnapshot(
-      eventsCollectionRef,
-      (snapshot) => {
-        if (!snapshot.empty) {
-          const fetchedEvents: CulturalEvent[] = [];
-          snapshot.forEach((docSnap) => {
-            fetchedEvents.push(docSnap.data() as CulturalEvent);
-          });
-          setEvents(fetchedEvents);
-        }
-      },
-      (error) => {
-        try {
-          handleFirestoreError(error, OperationType.LIST, 'events');
-        } catch (err) {
-          console.warn('Operating in offline/cached mode for events:', err);
-        }
-      }
-    );
-
-    return () => unsubscribe();
-  }, []);
-
-  // Master Super Admins & Cross-department access
-  const isSuperAdmin = Boolean(
-    firebaseUser &&
-    (firebaseUser.email === 'goferconstruction@gmail.com' ||
-     firebaseUser.email === 'yaredcotm@gmail.com' ||
-     firebaseUser.email === 'admin@teklesawiros.org' ||
-     currentUser.role === 'SUPER_ADMIN')
-  );
+  }, [firebaseUser, activeDepartment, departmentMemberships, isSuperAdmin]);
 
   // User's department memberships strictly keyed by authenticated UID
   const userMemberships = firebaseUser
@@ -1497,15 +1581,163 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     (activeMembership?.status === 'APPROVED' && activeMembership?.role === 'ADMIN')
   );
 
+  const canApproveDeptMembers = Boolean(
+    isSuperAdmin ||
+    (activeMembership?.status === 'APPROVED' &&
+      (activeMembership?.role === 'ADMIN' || activeMembership?.canApproveMembers === true))
+  );
+
+  const hasDeptMemberAuthPrivilege = (deptId: string): boolean => {
+    if (isSuperAdmin) return true;
+    return userMemberships.some(
+      (m) =>
+        m.departmentId === deptId &&
+        m.status === 'APPROVED' &&
+        (m.role === 'ADMIN' || m.canApproveMembers === true)
+    );
+  };
+
   const canSwitchDepartments = Boolean(
     isSuperAdmin || approvedDepartmentsList.length > 1
   );
 
   const hasPendingApproval = Boolean(
     firebaseUser &&
-    !isSuperAdmin &&
-    (!activeMembership || activeMembership.status !== 'APPROVED')
+      !isSuperAdmin &&
+      (!activeMembership || activeMembership.status !== 'APPROVED')
   );
+
+  // Automatically route an approved non-super-admin user into their assigned department
+  // if they currently sit on an unjoined default department (e.g., default 'kinetibeb')
+  useEffect(() => {
+    if (!isAuthReady || !firebaseUser || isSuperAdmin) return;
+    const userApproved = userMemberships.filter((m) => m.status === 'APPROVED');
+    if (userApproved.length === 0) return;
+    const currentMem = userMemberships.find((m) => m.departmentId === activeDepartment);
+    if (!currentMem) {
+      setActiveDepartment(userApproved[0].departmentId);
+    }
+  }, [isAuthReady, firebaseUser, isSuperAdmin, userMemberships, activeDepartment]);
+
+  // 3. Real-time Firestore synchronization for Members (Department-scoped & authenticated)
+  useEffect(() => {
+    if (!isAuthReady || !firebaseUser) {
+      setMembers(INITIAL_MEMBERS);
+      return;
+    }
+
+    const isApprovedInDept = isSuperAdmin || activeMembership?.status === 'APPROVED';
+    if (!isApprovedInDept) {
+      return;
+    }
+
+    if (!isSuperAdmin) {
+      setMembers(
+        INITIAL_MEMBERS.filter((m) =>
+          m.departmentId ? m.departmentId === activeDepartment : activeDepartment === 'kinetibeb'
+        )
+      );
+    }
+
+    const membersQuery = isSuperAdmin
+      ? collection(db, 'members')
+      : query(collection(db, 'members'), where('departmentId', '==', activeDepartment));
+
+    const unsubscribe = onSnapshot(
+      membersQuery,
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const fetchedMembers: ChurchMember[] = [];
+          snapshot.forEach((docSnap) => {
+            fetchedMembers.push(docSnap.data() as ChurchMember);
+          });
+          setMembers((prev) => {
+            const base = isSuperAdmin
+              ? prev
+              : prev.filter((m) =>
+                  m.departmentId
+                    ? m.departmentId === activeDepartment
+                    : activeDepartment === 'kinetibeb'
+                );
+            const map = new Map(base.map((m) => [m.id, m]));
+            for (const m of fetchedMembers) {
+              map.set(m.id, m);
+            }
+            return Array.from(map.values());
+          });
+        }
+      },
+      (error) => {
+        try {
+          handleFirestoreError(error, OperationType.LIST, 'members');
+        } catch (err) {
+          console.warn('Operating in offline/cached mode for members:', err);
+        }
+      }
+    );
+
+    return () => unsubscribe();
+  }, [isAuthReady, firebaseUser, activeDepartment, activeMembership?.status, isSuperAdmin]);
+
+  // 4. Real-time Firestore synchronization for Events (Department-scoped & authenticated)
+  useEffect(() => {
+    if (!isAuthReady || !firebaseUser) {
+      setEvents(INITIAL_EVENTS);
+      return;
+    }
+
+    const isApprovedInDept = isSuperAdmin || activeMembership?.status === 'APPROVED';
+    if (!isApprovedInDept) {
+      return;
+    }
+
+    if (!isSuperAdmin) {
+      setEvents(
+        INITIAL_EVENTS.filter((e) =>
+          e.departmentId ? e.departmentId === activeDepartment : activeDepartment === 'kinetibeb'
+        )
+      );
+    }
+
+    const eventsQuery = isSuperAdmin
+      ? collection(db, 'events')
+      : query(collection(db, 'events'), where('departmentId', '==', activeDepartment));
+
+    const unsubscribe = onSnapshot(
+      eventsQuery,
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const fetchedEvents: CulturalEvent[] = [];
+          snapshot.forEach((docSnap) => {
+            fetchedEvents.push(docSnap.data() as CulturalEvent);
+          });
+          setEvents((prev) => {
+            const base = isSuperAdmin
+              ? prev
+              : prev.filter((e) =>
+                  e.departmentId
+                    ? e.departmentId === activeDepartment
+                    : activeDepartment === 'kinetibeb'
+                );
+            const map = new Map(base.map((e) => [e.id, e]));
+            for (const e of fetchedEvents) {
+              map.set(e.id, e);
+            }
+            return Array.from(map.values());
+          });
+        }
+      },
+      (error) => {
+        try {
+          handleFirestoreError(error, OperationType.LIST, 'events');
+        } catch (err) {
+          console.warn('Operating in offline/cached mode for events:', err);
+        }
+      }
+    );
+
+    return () => unsubscribe();
+  }, [isAuthReady, firebaseUser, activeDepartment, activeMembership?.status, isSuperAdmin]);
 
   // 5. Real-time Firestore synchronization for Department Memberships (Authenticated & Scoped)
   useEffect(() => {
@@ -1514,10 +1746,12 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return;
     }
 
-    // Run idempotent migration for existing records on authenticated session
-    migrateDepartmentMemberships(db).catch((err) => {
-      console.warn('[Membership Migration Notice]', err);
-    });
+    if (isSuperAdmin) {
+      // Run idempotent migration for existing records only under super admin session
+      migrateDepartmentMemberships(db).catch((err) => {
+        console.warn('[Membership Migration Notice]', err);
+      });
+    }
 
     let unsubUser: (() => void) | null = null;
     let unsubDept: (() => void) | null = null;
@@ -1556,13 +1790,10 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     );
 
-    // B. If user is super admin or department admin, subscribe to department roster
-    const currentCanonicalId = getCanonicalMembershipId(firebaseUser.uid, activeDepartment);
-    const hasAdminPrivilege = isSuperAdmin || departmentMemberships.some(
-      (m) => m.id === currentCanonicalId && m.status === 'APPROVED' && m.role === 'ADMIN'
-    );
+    // B. If user is super admin, department admin, or member-authorizer, subscribe to department roster
+    const hasRosterPrivilege = isSuperAdmin || isDeptAdmin || canApproveDeptMembers;
 
-    if (hasAdminPrivilege) {
+    if (hasRosterPrivilege) {
       const deptQuery = isSuperAdmin
         ? collection(db, 'department_memberships')
         : query(collection(db, 'department_memberships'), where('departmentId', '==', activeDepartment));
@@ -1600,7 +1831,76 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (unsubUser) unsubUser();
       if (unsubDept) unsubDept();
     };
-  }, [isAuthReady, firebaseUser, activeDepartment, isSuperAdmin]);
+  }, [isAuthReady, firebaseUser, activeDepartment, isSuperAdmin, isDeptAdmin, canApproveDeptMembers]);
+
+  // 5b. Real-time Firestore synchronization for Registered Users (Super Admin only)
+  useEffect(() => {
+    if (!isAuthReady || !firebaseUser || !isSuperAdmin) {
+      setRegisteredUsers([]);
+      setRegisteredUsersError(null);
+      return;
+    }
+
+    const unsubscribe = onSnapshot(
+      collection(db, 'users'),
+      (snapshot) => {
+        const fetched: UserProfile[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data() as Partial<UserProfile>;
+          fetched.push({
+            id: data.id || docSnap.id,
+            fullName: data.fullName || data.email || 'ተጠቃሚ',
+            email: data.email || '',
+            role: (data.role as UserRole) || 'MEMBER',
+            department: data.department || '',
+            departmentId: data.departmentId,
+            sundaySchoolId: data.sundaySchoolId,
+            requestedPosition: data.requestedPosition,
+            joinedDate: data.joinedDate || '፳፻፲፱ ዓ.ም',
+            myWorksCount: 0,
+            mySubmissionsCount: 0,
+            myBookmarksCount: 0,
+          });
+        });
+        setRegisteredUsers(fetched);
+        setRegisteredUsersError(null);
+      },
+      (error) => {
+        console.warn('Registered users listener notice:', error);
+        setRegisteredUsersError(error?.message || 'Unable to load registered users.');
+      }
+    );
+
+    return () => unsubscribe();
+  }, [isAuthReady, firebaseUser, isSuperAdmin]);
+
+  // 5c. Real-time Firestore synchronization for Department Invites / Email Pre-Approvals
+  useEffect(() => {
+    if (!isAuthReady || !firebaseUser || (!isSuperAdmin && !isDeptAdmin && !canApproveDeptMembers)) {
+      setDepartmentInvites([]);
+      return;
+    }
+
+    const invitesQuery = isSuperAdmin
+      ? collection(db, 'department_invites')
+      : query(collection(db, 'department_invites'), where('departmentId', '==', activeDepartment));
+
+    const unsubscribe = onSnapshot(
+      invitesQuery,
+      (snapshot) => {
+        const fetched: DepartmentInvite[] = [];
+        snapshot.forEach((docSnap) => {
+          fetched.push(docSnap.data() as DepartmentInvite);
+        });
+        setDepartmentInvites(fetched);
+      },
+      (error) => {
+        console.warn('Department invites listener notice:', error);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [isAuthReady, firebaseUser, activeDepartment, isSuperAdmin, isDeptAdmin, canApproveDeptMembers]);
 
   // 6. Real-time Firestore synchronization for Schedule Assignments (Department & Member Scoped)
   useEffect(() => {
@@ -1612,7 +1912,9 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const currentCanonicalId = getCanonicalMembershipId(firebaseUser.uid, activeDepartment);
     const currentMem = departmentMemberships.find((m) => m.id === currentCanonicalId);
     const isApproved = currentMem?.status === 'APPROVED';
-    const isAdminOfDept = isSuperAdmin || (isApproved && currentMem?.role === 'ADMIN');
+    const isAdminOfDept =
+      isSuperAdmin ||
+      (isApproved && (currentMem?.role === 'ADMIN' || currentMem?.canApproveMembers === true));
 
     if (!isSuperAdmin && !isApproved) {
       // Pending, rejected, or non-members cannot read department schedule assignments
@@ -1722,14 +2024,98 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  const claimMatchingInvitesForUser = async (
+    user: FirebaseUser,
+    fallbackFullName: string,
+    fallbackSundaySchoolId?: string,
+    fallbackRequestedPosition?: EhudDepartmentPosition
+  ): Promise<DepartmentMembership[]> => {
+    const claimedMemberships: DepartmentMembership[] = [];
+    if (!user.email) return claimedMemberships;
+    const emailLower = user.email.trim().toLowerCase();
+
+    try {
+      const inviteSnap = await getDocs(
+        query(collection(db, 'department_invites'), where('emailLower', '==', emailLower))
+      );
+
+      for (const invDoc of inviteSnap.docs) {
+        const inv = invDoc.data() as DepartmentInvite;
+        if (inv.status !== 'ACTIVE') continue;
+
+        const membershipId = getCanonicalMembershipId(user.uid, inv.departmentId);
+        const existingRef = doc(db, 'department_memberships', membershipId);
+        let existingData: Partial<DepartmentMembership> | undefined;
+        try {
+          const existingSnap = await getDoc(existingRef);
+          if (existingSnap.exists()) {
+            existingData = existingSnap.data() as Partial<DepartmentMembership>;
+          }
+        } catch {
+          // proceed with new membership payload
+        }
+
+        const nowIso = new Date().toISOString();
+        const nowEth = 'ጥቅምት 2019 ዓ.ም.';
+        const deptInfo = departmentsList.find((d) => d.id === inv.departmentId);
+
+        const membershipRecord: DepartmentMembership = {
+          id: membershipId,
+          userId: user.uid,
+          userEmail: user.email || '',
+          userName: fallbackFullName || existingData?.userName || inv.fullName,
+          departmentId: inv.departmentId,
+          departmentName: inv.departmentName || deptInfo?.titleAmharic || inv.departmentId,
+          division: inv.division || existingData?.division || 'youth',
+          sundaySchoolId: inv.sundaySchoolId || fallbackSundaySchoolId || existingData?.sundaySchoolId,
+          requestedPosition:
+            inv.requestedPosition || fallbackRequestedPosition || existingData?.requestedPosition,
+          serviceSkills: existingData?.serviceSkills || [],
+          preferredResponsibilities: existingData?.preferredResponsibilities || '',
+          role: inv.role,
+          ...(inv.canApproveMembers ? { canApproveMembers: true } : {}),
+          status: 'APPROVED',
+          inviteId: inv.id,
+          approvedBy: inv.invitedBy,
+          approvedByName: inv.invitedByName || 'አስተዳዳሪ',
+          approvedAt: nowEth,
+          statusUpdatedAt: nowIso,
+          createdAt: existingData?.createdAt || nowIso,
+        };
+
+        await setDoc(existingRef, sanitizeFirestorePayload(membershipRecord));
+        await updateDoc(doc(db, 'department_invites', inv.id), {
+          status: 'CLAIMED',
+          claimedBy: user.uid,
+          claimedAt: nowIso,
+        });
+
+        claimedMemberships.push(membershipRecord);
+      }
+
+      if (claimedMemberships.length > 0) {
+        setDepartmentMemberships((prev) => {
+          const map = new Map(prev.map((m) => [m.id, m]));
+          for (const cm of claimedMemberships) {
+            map.set(cm.id, cm);
+          }
+          const merged = Array.from(map.values());
+          try {
+            localStorage.setItem('mezgebe_dept_memberships', JSON.stringify(merged));
+          } catch {}
+          return merged;
+        });
+      }
+    } catch (err) {
+      console.warn('Invite claim check notice:', err);
+    }
+
+    return claimedMemberships;
+  };
+
   const signInWithGoogle = async (): Promise<FirebaseUser | null> => {
     try {
       const result = await signInWithPopup(auth, googleProvider);
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      if (credential?.accessToken) {
-        setCachedGoogleToken(credential.accessToken);
-        setGoogleAccessToken(credential.accessToken);
-      }
       return result.user;
     } catch (error: any) {
       if (
@@ -1752,81 +2138,102 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     requestedDeptId?: string,
     division?: SundaySchoolDivision,
     serviceSkills?: string[],
-    preferredResponsibilities?: string
+    preferredResponsibilities?: string,
+    sundaySchoolId?: string,
+    requestedPosition?: EhudDepartmentPosition
   ) => {
-    const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
-    const user = userCredential.user;
-    if (fullName.trim()) {
-      try {
-        await updateProfile(user, { displayName: fullName.trim() });
-      } catch {
-        // non-blocking
-      }
-    }
-    const isMasterAdmin =
-      user.email === 'goferconstruction@gmail.com' ||
-      user.email === 'yaredcotm@gmail.com' ||
-      user.email === 'admin@teklesawiros.org';
-    const profileRole: UserRole = isMasterAdmin ? 'ADMIN' : role;
-
-    const targetDeptId = requestedDeptId || activeDepartment || 'kinetibeb';
-    const deptInfo = departmentsList.find((d) => d.id === targetDeptId);
-
-    const newProfile: UserProfile = {
-      id: user.uid,
-      fullName: fullName.trim() || user.email?.split('@')[0] || 'አባል',
-      email: user.email || '',
-      role: profileRole,
-      department: deptInfo?.titleAmharic || 'የተክለ ሣዊሮስ ሰንበት ት/ቤት',
-      joinedDate: '፳፻፲፱ ዓ.ም',
-      myWorksCount: 0,
-      mySubmissionsCount: 0,
-      myBookmarksCount: 0,
-    };
-    setCurrentUser(newProfile);
-
-    // Create department membership request with canonical ID {userId}_{deptId}
-    const membershipId = getCanonicalMembershipId(user.uid, targetDeptId);
-    const nowIso = new Date().toISOString();
-    const newMembership: DepartmentMembership = {
-      id: membershipId,
-      userId: user.uid,
-      userEmail: user.email || '',
-      userName: newProfile.fullName,
-      departmentId: targetDeptId,
-      departmentName: deptInfo?.titleAmharic || targetDeptId,
-      division: division || selectedDivision || 'youth',
-      serviceSkills: serviceSkills || [],
-      preferredResponsibilities: preferredResponsibilities || '',
-      role: isMasterAdmin ? 'ADMIN' : (role === 'ADMIN' ? 'CONTRIBUTOR' : role),
-      status: isMasterAdmin ? 'APPROVED' : 'PENDING',
-      createdAt: nowIso,
-      ...(isMasterAdmin
-        ? {
-            approvedBy: user.uid,
-            approvedByName: 'የበላይ አስተዳደር',
-            approvedAt: nowIso,
-          }
-        : {}),
-    };
-
-    const sanitizedMembership = sanitizeFirestorePayload(newMembership);
-
+    isRegisteringRef.current = true;
     try {
-      await setDoc(
-        doc(db, 'users', user.uid),
-        {
-          id: user.uid,
-          fullName: newProfile.fullName,
-          email: newProfile.email,
-          role: newProfile.role,
-          department: newProfile.department,
-          joinedDate: newProfile.joinedDate,
-          bookmarks: [],
-        },
-        { merge: true }
+      const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
+      const user = userCredential.user;
+      if (fullName.trim()) {
+        try {
+          await updateProfile(user, { displayName: fullName.trim() });
+        } catch {
+          // non-blocking
+        }
+      }
+      const isMasterAdmin = Boolean(
+        user.emailVerified &&
+          (user.email === 'goferconstruction@gmail.com' ||
+            user.email === 'yaredcotm@gmail.com' ||
+            user.email === 'admin@teklesawiros.org')
       );
 
+      const targetDeptId = requestedDeptId || activeDepartment || 'kinetibeb';
+      const deptInfo = departmentsList.find((d) => d.id === targetDeptId);
+      const cleanSundaySchoolId = sundaySchoolId?.trim() || undefined;
+
+      // Self-registration must always start with a non-privileged base role ('MEMBER' or 'CONTRIBUTOR')
+      // unless the account is a verified master admin.
+      const safeSelfRole: UserRole = isMasterAdmin
+        ? 'ADMIN'
+        : targetDeptId === 'ehud_merha_gibir'
+        ? 'MEMBER'
+        : role === 'CONTRIBUTOR'
+        ? 'CONTRIBUTOR'
+        : 'MEMBER';
+
+      const newProfile: UserProfile = {
+        id: user.uid,
+        fullName: fullName.trim() || user.email?.split('@')[0] || 'አባል',
+        email: user.email || '',
+        role: safeSelfRole,
+        department: deptInfo?.titleAmharic || 'የተክለ ሣዊሮስ ሰንበት ት/ቤት',
+        departmentId: targetDeptId,
+        sundaySchoolId: cleanSundaySchoolId,
+        requestedPosition,
+        joinedDate: '፳፻፲፱ ዓ.ም',
+        myWorksCount: 0,
+        mySubmissionsCount: 0,
+        myBookmarksCount: 0,
+      };
+      setCurrentUser(newProfile);
+
+      // Create department membership request with canonical ID {userId}_{deptId}
+      const membershipId = getCanonicalMembershipId(user.uid, targetDeptId);
+      const nowIso = new Date().toISOString();
+      const newMembership: DepartmentMembership = {
+        id: membershipId,
+        userId: user.uid,
+        userEmail: user.email || '',
+        userName: newProfile.fullName,
+        departmentId: targetDeptId,
+        departmentName: deptInfo?.titleAmharic || targetDeptId,
+        division: division || selectedDivision || 'youth',
+        sundaySchoolId: cleanSundaySchoolId,
+        requestedPosition,
+        serviceSkills: targetDeptId === 'ehud_merha_gibir' ? [] : serviceSkills || [],
+        preferredResponsibilities:
+          targetDeptId === 'ehud_merha_gibir' ? '' : preferredResponsibilities || '',
+        role: safeSelfRole,
+        status: isMasterAdmin ? 'APPROVED' : 'PENDING',
+        createdAt: nowIso,
+        ...(isMasterAdmin
+          ? {
+              approvedBy: user.uid,
+              approvedByName: 'የበላይ አስተዳደር',
+              approvedAt: nowIso,
+            }
+          : {}),
+      };
+
+      const sanitizedProfilePayload = sanitizeFirestorePayload({
+        id: user.uid,
+        fullName: newProfile.fullName,
+        email: newProfile.email,
+        role: safeSelfRole,
+        department: newProfile.department,
+        departmentId: targetDeptId,
+        sundaySchoolId: cleanSundaySchoolId,
+        requestedPosition,
+        joinedDate: newProfile.joinedDate,
+        bookmarks: [],
+      });
+
+      const sanitizedMembership = sanitizeFirestorePayload(newMembership);
+
+      await setDoc(doc(db, 'users', user.uid), sanitizedProfilePayload);
       await setDoc(doc(db, 'department_memberships', membershipId), sanitizedMembership);
 
       if (isMasterAdmin) {
@@ -1838,12 +2245,19 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
           },
           { merge: true }
         );
+        setIsAdminDocVerified(true);
       }
 
       setDepartmentMemberships((prev) => [newMembership, ...prev.filter((m) => m.id !== membershipId)]);
-    } catch (err) {
-      console.error('Registration persistence error:', err);
-      throw err;
+
+      await claimMatchingInvitesForUser(
+        user,
+        newProfile.fullName,
+        cleanSundaySchoolId,
+        requestedPosition
+      );
+    } finally {
+      isRegisteringRef.current = false;
     }
   };
 
@@ -1851,7 +2265,9 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     deptId: string,
     division?: SundaySchoolDivision,
     serviceSkills?: string[],
-    preferredResponsibilities?: string
+    preferredResponsibilities?: string,
+    sundaySchoolId?: string,
+    requestedPosition?: EhudDepartmentPosition
   ): Promise<DepartmentMembership> => {
     if (!auth.currentUser) {
       throw new Error('Authentication required to submit membership request.');
@@ -1861,6 +2277,7 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const membershipId = getCanonicalMembershipId(user.uid, deptId);
     const isSuper = isSuperAdmin;
     const nowIso = new Date().toISOString();
+    const cleanSundaySchoolId = sundaySchoolId?.trim() || currentUser.sundaySchoolId || undefined;
 
     const newMembership: DepartmentMembership = {
       id: membershipId,
@@ -1870,8 +2287,11 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       departmentId: deptId,
       departmentName: dept?.titleAmharic || deptId,
       division: division || selectedDivision || 'youth',
-      serviceSkills: serviceSkills || [],
-      preferredResponsibilities: preferredResponsibilities || '',
+      sundaySchoolId: cleanSundaySchoolId,
+      requestedPosition,
+      serviceSkills: deptId === 'ehud_merha_gibir' ? [] : serviceSkills || [],
+      preferredResponsibilities:
+        deptId === 'ehud_merha_gibir' ? '' : preferredResponsibilities || '',
       role: isSuper ? 'ADMIN' : 'MEMBER',
       status: isSuper ? 'APPROVED' : 'PENDING',
       createdAt: nowIso,
@@ -1910,20 +2330,38 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return newMembership;
   };
 
-  const approveMembershipRequest = async (membershipId: string, assignedRole: UserRole): Promise<void> => {
+  const approveMembershipRequest = async (
+    membershipId: string,
+    assignedRole: UserRole,
+    ehudPosition?: EhudDepartmentPosition,
+    canApproveMembers?: boolean
+  ): Promise<void> => {
     const target = departmentMemberships.find((m) => m.id === membershipId);
     if (!target) throw new Error('Membership record not found');
 
-    // Only Super Admin can appoint ADMIN role
-    if (assignedRole === 'ADMIN' && !isSuperAdmin) {
-      throw new Error('Only super administrators can appoint department administrators.');
+    if (!hasDeptMemberAuthPrivilege(target.departmentId)) {
+      throw new Error('You are only authorized to approve members in your assigned department.');
+    }
+
+    // Only Super Admin can appoint ADMIN role or change existing ADMIN
+    if ((assignedRole === 'ADMIN' || target.role === 'ADMIN') && !isSuperAdmin) {
+      throw new Error('Only super administrators can appoint or modify department administrators.');
     }
 
     const nowEth = 'ጥቅምት 2019 ዓ.ም.';
     const nowIso = new Date().toISOString();
+    const finalRequestedPosition = ehudPosition || target.requestedPosition;
+    const finalCanApprove = isSuperAdmin
+      ? canApproveMembers !== undefined
+        ? canApproveMembers
+        : target.canApproveMembers
+      : target.canApproveMembers;
+
     const updated: DepartmentMembership = {
       ...target,
       role: assignedRole,
+      requestedPosition: finalRequestedPosition,
+      ...(finalCanApprove !== undefined ? { canApproveMembers: finalCanApprove } : {}),
       status: 'APPROVED',
       approvedBy: auth.currentUser?.uid || currentUser.id,
       approvedByName: currentUser.fullName,
@@ -1944,20 +2382,286 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return next;
     });
 
+    const roleDisplay =
+      target.departmentId === 'ehud_merha_gibir' && finalRequestedPosition
+        ? `${EHUD_DEPARTMENT_POSITIONS[finalRequestedPosition].rank}ኛ. ${EHUD_DEPARTMENT_POSITIONS[finalRequestedPosition].amharicTitle} (${EHUD_DEPARTMENT_POSITIONS[finalRequestedPosition].englishTitle})`
+        : assignedRole;
+
     await addDepartmentNotification({
       departmentId: target.departmentId,
       departmentTitle: target.departmentName,
       targetUserId: target.userId,
       title: 'የአባልነት ማመልከቻዎ ጸድቋል!',
-      message: `እንኳን ደስ አሎት! ወደ «${target.departmentName}» ያቀረቡት የአባልነት ጥያቄ ተቀባይነት አግኝቷል። ሚናዎ፦ ${assignedRole} ሆኖ ተመድቧል።`,
+      message: `እንኳን ደስ አሎት! ወደ «${target.departmentName}» ያቀረቡት የአባልነት ጥያቄ ተቀባይነት አግኝቷል። ሚናዎ፦ ${roleDisplay} ሆኖ ተመድቧል።`,
       type: 'MEMBERSHIP_STATUS',
       relatedId: membershipId,
     });
   };
 
+  const appointUserToDepartment = async (
+    userProfile: UserProfile,
+    deptId: string,
+    assignedRole: UserRole,
+    ehudPosition?: EhudDepartmentPosition,
+    canApproveMembers?: boolean
+  ): Promise<void> => {
+    if (!isSuperAdmin) {
+      throw new Error('Only super administrators can appoint registered users directly.');
+    }
+    const dept = departmentsList.find((d) => d.id === deptId);
+    const membershipId = getCanonicalMembershipId(userProfile.id, deptId);
+    const nowEth = 'ጥቅምት 2019 ዓ.ም.';
+    const nowIso = new Date().toISOString();
+    const existing = departmentMemberships.find((m) => m.id === membershipId);
+    const finalRequestedPosition =
+      ehudPosition || userProfile.requestedPosition || existing?.requestedPosition;
+    const finalCanApprove =
+      canApproveMembers !== undefined ? canApproveMembers : existing?.canApproveMembers;
+
+    const membershipRecord: DepartmentMembership = {
+      id: membershipId,
+      userId: userProfile.id,
+      userEmail: userProfile.email || existing?.userEmail || '',
+      userName: userProfile.fullName || existing?.userName || userProfile.email || 'አባል',
+      departmentId: deptId,
+      departmentName: dept?.titleAmharic || deptId,
+      division: existing?.division || 'youth',
+      sundaySchoolId: userProfile.sundaySchoolId || existing?.sundaySchoolId,
+      requestedPosition: finalRequestedPosition,
+      serviceSkills: existing?.serviceSkills || [],
+      preferredResponsibilities: existing?.preferredResponsibilities || '',
+      role: assignedRole,
+      ...(finalCanApprove !== undefined ? { canApproveMembers: finalCanApprove } : {}),
+      status: 'APPROVED',
+      approvedBy: auth.currentUser?.uid || currentUser.id,
+      approvedByName: currentUser.fullName,
+      approvedAt: nowEth,
+      statusUpdatedAt: nowIso,
+      createdAt: existing?.createdAt || nowIso,
+    };
+
+    const sanitized = sanitizeFirestorePayload(membershipRecord);
+    await setDoc(doc(db, 'department_memberships', membershipId), sanitized);
+
+    setDepartmentMemberships((prev) => {
+      const next = [membershipRecord, ...prev.filter((m) => m.id !== membershipId)];
+      try {
+        localStorage.setItem('mezgebe_dept_memberships', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    const roleDisplay =
+      deptId === 'ehud_merha_gibir' && finalRequestedPosition
+        ? `${EHUD_DEPARTMENT_POSITIONS[finalRequestedPosition].rank}ኛ. ${EHUD_DEPARTMENT_POSITIONS[finalRequestedPosition].amharicTitle} (${EHUD_DEPARTMENT_POSITIONS[finalRequestedPosition].englishTitle})`
+        : assignedRole;
+
+    await addDepartmentNotification({
+      departmentId: deptId,
+      departmentTitle: dept?.titleAmharic || deptId,
+      targetUserId: userProfile.id,
+      title: 'የአባልነት ፈቃድ ተሰጥቶዎታል!',
+      message: `ወደ «${dept?.titleAmharic || deptId}» አባልነትዎ ጸድቋል። ሚናዎ፦ ${roleDisplay} ሆኖ ተመድቧል።`,
+      type: 'MEMBERSHIP_STATUS',
+      relatedId: membershipId,
+    });
+  };
+
+  const toggleMemberApprovalAuthority = async (
+    membershipId: string,
+    allow: boolean
+  ): Promise<void> => {
+    if (!isSuperAdmin) {
+      throw new Error('Only super administrators can grant or revoke member confirmation authority.');
+    }
+    const target = departmentMemberships.find((m) => m.id === membershipId);
+    if (!target) throw new Error('Membership record not found');
+
+    const nowIso = new Date().toISOString();
+    const updated: DepartmentMembership = {
+      ...target,
+      canApproveMembers: allow,
+      statusUpdatedAt: nowIso,
+    };
+
+    const sanitized = sanitizeFirestorePayload(updated);
+    await setDoc(doc(db, 'department_memberships', membershipId), sanitized);
+
+    setDepartmentMemberships((prev) => {
+      const next = prev.map((m) => (m.id === membershipId ? updated : m));
+      try {
+        localStorage.setItem('mezgebe_dept_memberships', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    await addDepartmentNotification({
+      departmentId: target.departmentId,
+      departmentTitle: target.departmentName,
+      targetUserId: target.userId,
+      title: allow
+        ? 'የአባላት ማረጋገጫ ፈቃድ ተሰጥቶዎታል'
+        : 'የአባላት ማረጋገጫ ፈቃድ ተነስቷል',
+      message: allow
+        ? `በ«${target.departmentName}» ውስጥ ብቻ አዳዲስ አባላትን የማረጋገጥና የማጽደቅ ሥልጣን ተሰጥቶዎታል።`
+        : `በ«${target.departmentName}» ውስጥ የነበረዎት የአባላት ማረጋገጫ ፈቃድ በበላይ አስተዳደር ተነስቷል።`,
+      type: 'MEMBERSHIP_STATUS',
+      relatedId: membershipId,
+    });
+  };
+
+  const createDepartmentInvite = async (data: {
+    email: string;
+    fullName: string;
+    departmentId: string;
+    role: UserRole;
+    division?: SundaySchoolDivision;
+    sundaySchoolId?: string;
+    requestedPosition?: EhudDepartmentPosition;
+    canApproveMembers?: boolean;
+  }): Promise<{ invite: DepartmentInvite; immediatelyApproved: boolean }> => {
+    if (!auth.currentUser) {
+      throw new Error('Authentication required.');
+    }
+    if (!hasDeptMemberAuthPrivilege(data.departmentId)) {
+      throw new Error('You can only pre-approve members for your authorized department.');
+    }
+    if (data.role === 'ADMIN' && !isSuperAdmin) {
+      throw new Error('Only super administrators can appoint department administrators.');
+    }
+    if (data.canApproveMembers && !isSuperAdmin) {
+      throw new Error('Only super administrators can grant member-authorization authority.');
+    }
+
+    const emailLower = data.email.trim().toLowerCase();
+    if (!emailLower || !emailLower.includes('@')) {
+      throw new Error('እባክዎ ትክክለኛ የኢሜይል አድራሻ ያስገቡ።');
+    }
+    const cleanFullName = data.fullName.trim();
+    if (!cleanFullName) {
+      throw new Error('እባክዎ የአባሉን ሙሉ ስም ያስገቡ።');
+    }
+
+    const dept = departmentsList.find((d) => d.id === data.departmentId);
+    const id = `inv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const nowIso = new Date().toISOString();
+    const cleanSundaySchoolId = data.sundaySchoolId?.trim() || undefined;
+    const allowCanApprove = isSuperAdmin && Boolean(data.canApproveMembers);
+
+    const invite: DepartmentInvite = {
+      id,
+      emailLower,
+      fullName: cleanFullName,
+      departmentId: data.departmentId,
+      departmentName: dept?.titleAmharic || data.departmentId,
+      division: data.division || 'youth',
+      sundaySchoolId: cleanSundaySchoolId,
+      requestedPosition: data.requestedPosition,
+      role: data.role,
+      ...(allowCanApprove ? { canApproveMembers: true } : {}),
+      status: 'ACTIVE',
+      invitedBy: auth.currentUser.uid,
+      invitedByName: currentUser.fullName,
+      createdAt: nowIso,
+    };
+
+    const sanitizedInvite = sanitizeFirestorePayload(invite);
+    await setDoc(doc(db, 'department_invites', id), sanitizedInvite);
+
+    let immediatelyApproved = false;
+    // If Super Admin already sees this email in registeredUsers, approve them immediately too
+    if (isSuperAdmin) {
+      const existingUser = registeredUsers.find(
+        (u) => u.email?.trim().toLowerCase() === emailLower
+      );
+      if (existingUser) {
+        const enrichedUser: UserProfile = {
+          ...existingUser,
+          fullName: existingUser.fullName || cleanFullName,
+          sundaySchoolId: cleanSundaySchoolId || existingUser.sundaySchoolId,
+          requestedPosition: data.requestedPosition || existingUser.requestedPosition,
+        };
+        await appointUserToDepartment(
+          enrichedUser,
+          data.departmentId,
+          data.role,
+          data.requestedPosition,
+          allowCanApprove
+        );
+        await updateDoc(doc(db, 'department_invites', id), {
+          status: 'CLAIMED',
+          claimedBy: existingUser.id,
+          claimedAt: nowIso,
+        });
+        invite.status = 'CLAIMED';
+        invite.claimedBy = existingUser.id;
+        invite.claimedAt = nowIso;
+        immediatelyApproved = true;
+      }
+    }
+
+    setDepartmentInvites((prev) => [invite, ...prev.filter((i) => i.id !== id)]);
+    return { invite, immediatelyApproved };
+  };
+
+  const cancelDepartmentInvite = async (inviteId: string): Promise<void> => {
+    const targetInvite = departmentInvites.find((inv) => inv.id === inviteId);
+    if (targetInvite && !hasDeptMemberAuthPrivilege(targetInvite.departmentId)) {
+      throw new Error('You can only cancel invites in your authorized department.');
+    }
+    if (!isSuperAdmin && !isDeptAdmin && !canApproveDeptMembers) {
+      throw new Error('Only authorized administrators can cancel pre-approvals.');
+    }
+    await updateDoc(doc(db, 'department_invites', inviteId), {
+      status: 'CANCELLED',
+    });
+    setDepartmentInvites((prev) =>
+      prev.map((inv) => (inv.id === inviteId ? { ...inv, status: 'CANCELLED' } : inv))
+    );
+  };
+
+  const refreshMembershipAndInvites = async (): Promise<void> => {
+    const user = auth.currentUser;
+    if (!user) return;
+    await claimMatchingInvitesForUser(
+      user,
+      currentUser.fullName,
+      currentUser.sundaySchoolId,
+      currentUser.requestedPosition
+    );
+    try {
+      const snap = await getDocs(
+        query(collection(db, 'department_memberships'), where('userId', '==', user.uid))
+      );
+      const userDocs: DepartmentMembership[] = [];
+      snap.forEach((d) => userDocs.push(d.data() as DepartmentMembership));
+      if (userDocs.length > 0) {
+        setDepartmentMemberships((prev) => {
+          const map = new Map(prev.map((m) => [m.id, m]));
+          for (const d of userDocs) {
+            map.set(d.id, d);
+          }
+          const merged = Array.from(map.values());
+          try {
+            localStorage.setItem('mezgebe_dept_memberships', JSON.stringify(merged));
+          } catch {}
+          return merged;
+        });
+      }
+    } catch {
+      // ignore offline refresh error
+    }
+  };
+
   const rejectMembershipRequest = async (membershipId: string, rejectionReason: string): Promise<void> => {
     const target = departmentMemberships.find((m) => m.id === membershipId);
     if (!target) throw new Error('Membership record not found');
+    if (!hasDeptMemberAuthPrivilege(target.departmentId)) {
+      throw new Error('You are only authorized to manage members in your assigned department.');
+    }
+    if (target.role === 'ADMIN' && !isSuperAdmin) {
+      throw new Error('Only super administrators can reject department administrators.');
+    }
 
     const nowIso = new Date().toISOString();
     const updated: DepartmentMembership = {
@@ -1994,6 +2698,12 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const suspendMembership = async (membershipId: string, suspensionReason?: string): Promise<void> => {
     const target = departmentMemberships.find((m) => m.id === membershipId);
     if (!target) throw new Error('Membership record not found');
+    if (!hasDeptMemberAuthPrivilege(target.departmentId)) {
+      throw new Error('You are only authorized to manage members in your assigned department.');
+    }
+    if (target.role === 'ADMIN' && !isSuperAdmin) {
+      throw new Error('Only super administrators can suspend department administrators.');
+    }
 
     const nowIso = new Date().toISOString();
     const updated: DepartmentMembership = {
@@ -2124,9 +2834,13 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const target = scheduleAssignments.find((a) => a.id === assignmentId);
     if (!target) throw new Error('Assignment not found');
 
-    // Non-admin members cannot mark COMPLETED, CANCELLED, or REVISION_REQUESTED
-    if (['COMPLETED', 'CANCELLED', 'REVISION_REQUESTED'].includes(status) && !isDeptAdmin) {
-      throw new Error('Only administrators can mark assignments completed, cancelled, or request revisions.');
+    // Non-managers cannot mark COMPLETED, CANCELLED, or REVISION_REQUESTED
+    if (
+      ['COMPLETED', 'CANCELLED', 'REVISION_REQUESTED'].includes(status) &&
+      !isDeptAdmin &&
+      !canApproveDeptMembers
+    ) {
+      throw new Error('Only department managers can mark assignments completed, cancelled, or request revisions.');
     }
 
     const memberId = auth.currentUser?.uid || currentUser.id;
@@ -2181,8 +2895,8 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     newStatus: ScheduleTaskStatus,
     feedback?: string
   ): Promise<void> => {
-    if (!isDeptAdmin) {
-      throw new Error('Only department administrators can review assignments.');
+    if (!isDeptAdmin && !canApproveDeptMembers) {
+      throw new Error('Only authorized department managers can review assignments.');
     }
     const target = scheduleAssignments.find((a) => a.id === assignmentId);
     if (!target) throw new Error('Assignment not found');
@@ -2207,7 +2921,7 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
            : 'በቀረበው ሥራ ላይ ማሻሻያ ተጠይቋል',
       message:
         newStatus === 'COMPLETED'
-          ? `ለ«${target.title}» ያቀረቡት ሰነድ በአስተዳዳሪው ጸድቋል። አስተያየት፦ ${feedback || 'ምንም'}`
+          ? `ለ«${target.title}» ያቀረቡት ሰነድ በክፍሉ ኃላፊ ጸድቋል። አስተያየት፦ ${feedback || 'ምንም'}`
           : `ለ«${target.title}» ማሻሻያ ተጠይቋል። አስተያየት፦ ${feedback || 'እባክዎ እንደገና ይገምግሙ'}`,
       type: newStatus === 'COMPLETED' ? 'ASSIGNMENT_COMPLETED' : 'REVISION_REQUESTED',
       relatedId: assignmentId,
@@ -2215,8 +2929,8 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const deleteScheduleAssignment = async (assignmentId: string): Promise<void> => {
-    if (!isDeptAdmin) {
-      throw new Error('Only department administrators can delete assignments.');
+    if (!isDeptAdmin && !canApproveDeptMembers) {
+      throw new Error('Only authorized department managers can delete assignments.');
     }
     await deleteDoc(doc(db, 'schedule_assignments', assignmentId));
     setScheduleAssignments((prev) => {
@@ -2319,6 +3033,9 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       });
       // Clear protected department state
       setDepartmentMemberships([]);
+      setDepartmentInvites([]);
+      setRegisteredUsers([]);
+      setRegisteredUsersError(null);
       setScheduleAssignments([]);
       setDepartmentNotifications([]);
       try {
@@ -2340,6 +3057,7 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const setUserRole = (role: UserRole) => {
+    if (!isSuperAdmin) return;
     setCurrentUser((prev) => ({ ...prev, role }));
   };
 
@@ -2790,6 +3508,9 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
         addAssignmentToProgram,
         toggleAssignmentCompletion,
         departmentMemberships,
+        departmentInvites,
+        registeredUsers,
+        registeredUsersError,
         scheduleAssignments,
         departmentNotifications,
         isSuperAdmin,
@@ -2798,10 +3519,16 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
         approvedDepartmentsList,
         activeMembership,
         isDeptAdmin,
+        canApproveDeptMembers,
         canSwitchDepartments,
         hasPendingApproval,
         requestDepartmentMembership,
         approveMembershipRequest,
+        appointUserToDepartment,
+        toggleMemberApprovalAuthority,
+        createDepartmentInvite,
+        cancelDepartmentInvite,
+        refreshMembershipAndInvites,
         rejectMembershipRequest,
         suspendMembership,
         createScheduleAssignment,

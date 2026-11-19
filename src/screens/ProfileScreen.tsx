@@ -8,6 +8,7 @@ import {
   MemberDuty,
   MEMBER_DUTY_LABELS,
   SundaySchoolDepartment,
+  EHUD_DEPARTMENT_POSITIONS,
 } from '../types';
 import { WorkCard } from '../components/Cards';
 import { HaragDivider, ManuscriptBox } from '../components/Ornaments';
@@ -73,8 +74,13 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     signInWithGoogle,
     logout,
     departmentsList,
+    approvedDepartmentsList,
     activeDepartment,
     setActiveDepartment,
+    activeMembership,
+    isSuperAdmin,
+    canApproveDeptMembers,
+    canSwitchDepartments,
     isGoogleDriveConnected,
     connectGoogleDrive,
     disconnectGoogleDrive,
@@ -85,6 +91,16 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   const [selectedDeptProfile, setSelectedDeptProfile] = useState<string>(activeDepartment || 'kinetibeb');
   const [driveNotice, setDriveNotice] = useState<string | null>(null);
   const [isConnectingDrive, setIsConnectingDrive] = useState<boolean>(false);
+
+  const visibleDepartments = isSuperAdmin
+    ? departmentsList
+    : approvedDepartmentsList.length > 0
+      ? approvedDepartmentsList
+      : departmentsList.filter((d) => d.id === activeDepartment);
+
+  const effectiveDeptProfile = visibleDepartments.some((d) => d.id === selectedDeptProfile)
+    ? selectedDeptProfile
+    : visibleDepartments[0]?.id || activeDepartment;
 
   // Bookmarked works
   const bookmarkedWorks = works.filter((w) => w.isBookmarked);
@@ -117,10 +133,13 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     'SUPER_ADMIN',
   ];
 
-  // Servants for the selected department profile
-  const currentDeptInfo = departmentsList.find((d) => d.id === selectedDeptProfile) || departmentsList[0];
+  // Servants for the selected department profile (scoped strictly to authorized department)
+  const currentDeptInfo =
+    visibleDepartments.find((d) => d.id === effectiveDeptProfile) ||
+    visibleDepartments[0] ||
+    departmentsList[0];
   const deptMembers = members.filter((m) => {
-    if (m.departmentId === selectedDeptProfile) return true;
+    if (m.departmentId === effectiveDeptProfile) return true;
     if (
       m.department &&
       currentDeptInfo &&
@@ -129,16 +148,16 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     ) {
       return true;
     }
-    if (!m.departmentId && selectedDeptProfile === 'kinetibeb') return true;
+    if (!m.departmentId && effectiveDeptProfile === 'kinetibeb') return true;
     return false;
   });
 
   const deptWorks = works.filter((w) =>
-    w.departmentId ? w.departmentId === selectedDeptProfile : selectedDeptProfile === 'kinetibeb'
+    w.departmentId ? w.departmentId === effectiveDeptProfile : effectiveDeptProfile === 'kinetibeb'
   );
 
   const deptEvents = events.filter((ev) => {
-    if (ev.departmentId === selectedDeptProfile) return true;
+    if (ev.departmentId === effectiveDeptProfile) return true;
     if (
       currentDeptInfo &&
       ev.organizer &&
@@ -147,7 +166,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     ) {
       return true;
     }
-    if (!ev.departmentId && selectedDeptProfile === 'kinetibeb') return true;
+    if (!ev.departmentId && effectiveDeptProfile === 'kinetibeb') return true;
     return false;
   });
 
@@ -196,7 +215,16 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                 {currentUser.fullName}
               </h1>
               <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-[#F5B800]/20 text-[#FFD54F] border border-[#F5B800]/30">
-                {USER_ROLES[currentUser.role]?.amharicTitle || currentUser.role}
+                {activeDepartment === 'ehud_merha_gibir' &&
+                !isSuperAdmin &&
+                (activeMembership?.requestedPosition || currentUser.requestedPosition)
+                  ? (() => {
+                      const posKey = (activeMembership?.requestedPosition ||
+                        currentUser.requestedPosition)!;
+                      const pos = EHUD_DEPARTMENT_POSITIONS[posKey];
+                      return `${pos.rank}ኛ. ${pos.amharicTitle} (${pos.englishTitle})`;
+                    })()
+                  : USER_ROLES[currentUser.role]?.amharicTitle || currentUser.role}
               </span>
             </div>
             <p className="text-white/70 text-sm mb-2">{currentUser.email}</p>
@@ -213,51 +241,68 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                 <Sparkles className="w-3.5 h-3.5 text-[#F5B800]" />
                 ተክለ ሣዊሮስ ሰ/ት/ቤት (፲፱፻፶፯)
               </span>
+              {currentUser.sundaySchoolId && (
+                <span className="flex items-center gap-1 bg-[#F5B800]/20 text-[#FFD54F] px-2.5 py-1 rounded-lg font-mono font-bold">
+                  መታወቂያ፦ {currentUser.sundaySchoolId}
+                </span>
+              )}
+              {!isSuperAdmin && canApproveDeptMembers && (
+                <span className="flex items-center gap-1 bg-emerald-500/25 text-emerald-200 border border-emerald-400/40 px-2.5 py-1 rounded-lg font-bold">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  የ{currentDeptInfo?.shortTitleAmharic || 'ክፍሉ'} አባላት ማረጋገጫ ፈቃድ (Member Authorizer)
+                </span>
+              )}
             </div>
           </div>
 
-          {/* Quick role switcher & active department dropdown */}
-          <div className="bg-white/10 backdrop-blur-xs rounded-2xl p-3 border border-white/10 text-xs w-full md:w-auto space-y-2">
-            <div>
-              <label className="block text-white/70 mb-1 font-medium">
-                የተጠቃሚ ሚና ቀይር (RBAC):
-              </label>
-              <select
-                value={currentUser.role}
-                onChange={(e) => setUserRole(e.target.value as UserRole)}
-                aria-label="የተጠቃሚ ሚና ቀይር (RBAC)"
-                className="bg-[#072958] border border-[#F5B800]/40 text-[#FFD54F] rounded-lg px-2.5 py-1.5 font-medium focus:outline-none focus:ring-1 focus:ring-[#F5B800] text-xs w-full cursor-pointer"
-              >
-                {availableRoles.map((r) => (
-                  <option key={r} value={r}>
-                    {USER_ROLES[r]?.amharicTitle} ({r})
-                  </option>
-                ))}
-              </select>
-            </div>
+          {/* Quick role switcher (Super Admin only) & department switcher (Super Admin or Multi-Dept users) */}
+          {(isSuperAdmin || canSwitchDepartments) && (
+            <div className="bg-white/10 backdrop-blur-xs rounded-2xl p-3 border border-white/10 text-xs w-full md:w-auto space-y-2">
+              {isSuperAdmin && (
+                <div>
+                  <label className="block text-white/70 mb-1 font-medium">
+                    የተጠቃሚ ሚና ቀይር (RBAC):
+                  </label>
+                  <select
+                    value={currentUser.role}
+                    onChange={(e) => setUserRole(e.target.value as UserRole)}
+                    aria-label="የተጠቃሚ ሚና ቀይር (RBAC)"
+                    className="bg-[#072958] border border-[#F5B800]/40 text-[#FFD54F] rounded-lg px-2.5 py-1.5 font-medium focus:outline-none focus:ring-1 focus:ring-[#F5B800] text-xs w-full cursor-pointer"
+                  >
+                    {availableRoles.map((r) => (
+                      <option key={r} value={r}>
+                        {USER_ROLES[r]?.amharicTitle} ({r})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
-            <div>
-              <label className="block text-white/70 mb-1 font-medium">
-                የአገልግሎት ክፍል፦
-              </label>
-              <select
-                value={activeDepartment}
-                onChange={(e) => {
-                  const val = e.target.value as SundaySchoolDepartment;
-                  setActiveDepartment(val);
-                  setSelectedDeptProfile(val);
-                }}
-                aria-label="የአገልግሎት ክፍል ይምረጡ"
-                className="bg-[#072958] border border-[#F5B800]/40 text-[#FFD54F] rounded-lg px-2.5 py-1.5 font-medium focus:outline-none focus:ring-1 focus:ring-[#F5B800] text-xs w-full cursor-pointer"
-              >
-                {departmentsList.map((dept) => (
-                  <option key={dept.id} value={dept.id}>
-                    {dept.shortTitleAmharic}
-                  </option>
-                ))}
-              </select>
+              {(isSuperAdmin || canSwitchDepartments) && (
+                <div>
+                  <label className="block text-white/70 mb-1 font-medium">
+                    የአገልግሎት ክፍል፦
+                  </label>
+                  <select
+                    value={activeDepartment}
+                    onChange={(e) => {
+                      const val = e.target.value as SundaySchoolDepartment;
+                      setActiveDepartment(val);
+                      setSelectedDeptProfile(val);
+                    }}
+                    aria-label="የአገልግሎት ክፍል ይምረጡ"
+                    className="bg-[#072958] border border-[#F5B800]/40 text-[#FFD54F] rounded-lg px-2.5 py-1.5 font-medium focus:outline-none focus:ring-1 focus:ring-[#F5B800] text-xs w-full cursor-pointer"
+                  >
+                    {(isSuperAdmin ? departmentsList : approvedDepartmentsList).map((dept) => (
+                      <option key={dept.id} value={dept.id}>
+                        {dept.shortTitleAmharic}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
-          </div>
+          )}
         </div>
 
         {/* Stats Row */}
@@ -282,9 +327,11 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           </div>
           <div className="text-center p-2.5 sm:p-3 rounded-2xl bg-white/5">
             <div className="text-xl sm:text-2xl font-bold font-serif-ethiopic text-[#F5B800]">
-              {departmentsList.length}
+              {visibleDepartments.length}
             </div>
-            <div className="text-[11px] sm:text-xs text-white/70 mt-0.5">ክፍሎች</div>
+            <div className="text-[11px] sm:text-xs text-white/70 mt-0.5">
+              {isSuperAdmin ? 'ክፍሎች' : 'የተፈቀደ ክፍል'}
+            </div>
           </div>
         </div>
       </div>
@@ -368,10 +415,12 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           </div>
           <div>
             <div className="font-semibold text-xs md:text-sm text-slate-900 dark:text-slate-100">
-              የክፍላት መገለጫዎች
+              {isSuperAdmin || canSwitchDepartments ? 'የክፍላት መገለጫዎች' : 'የክፍሉ መገለጫ'}
             </div>
             <div className="text-[11px] text-slate-500 dark:text-slate-400">
-              የ7ቱ ክፍሎች አባላትና ሃላፊዎች
+              {isSuperAdmin || canSwitchDepartments
+                ? 'የተፈቀዱ ክፍሎች አባላትና ሃላፊዎች'
+                : `${currentDeptInfo?.shortTitleAmharic || 'የክፍሉ'} አባላትና ሃላፊዎች`}
             </div>
           </div>
         </button>
@@ -511,41 +560,43 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
       {/* Tab 3: Department Profiles & Servants Directory */}
       {activeTab === 'departments' && (
         <div className="space-y-6">
-          {/* Department Selection Pills */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
-            {departmentsList.map((dept) => {
-              const isSelected = selectedDeptProfile === dept.id;
-              const count = members.filter((m) => {
-                if (m.departmentId === dept.id) return true;
-                if (m.department && (m.department.includes(dept.shortTitleAmharic) || m.department.includes(dept.badgeLabel))) return true;
-                if (!m.departmentId && dept.id === 'kinetibeb') return true;
-                return false;
-              }).length;
+          {/* Department Selection Pills (shown only when Super Admin or multiple approved departments) */}
+          {(isSuperAdmin || visibleDepartments.length > 1) && (
+            <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
+              {visibleDepartments.map((dept) => {
+                const isSelected = effectiveDeptProfile === dept.id;
+                const count = members.filter((m) => {
+                  if (m.departmentId === dept.id) return true;
+                  if (m.department && (m.department.includes(dept.shortTitleAmharic) || m.department.includes(dept.badgeLabel))) return true;
+                  if (!m.departmentId && dept.id === 'kinetibeb') return true;
+                  return false;
+                }).length;
 
-              return (
-                <button
-                  key={dept.id}
-                  onClick={() => setSelectedDeptProfile(dept.id)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all shrink-0 flex items-center gap-1.5 cursor-pointer ${
-                    isSelected
-                      ? 'bg-[#0C4A9E] text-white border-[#0C4A9E] shadow-sm'
-                      : 'bg-white dark:bg-[#111D30] border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-400'
-                  }`}
-                >
-                  <span>{dept.shortTitleAmharic}</span>
-                  <span
-                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                return (
+                  <button
+                    key={dept.id}
+                    onClick={() => setSelectedDeptProfile(dept.id)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all shrink-0 flex items-center gap-1.5 cursor-pointer ${
                       isSelected
-                        ? 'bg-white/20 text-white'
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+                        ? 'bg-[#0C4A9E] text-white border-[#0C4A9E] shadow-sm'
+                        : 'bg-white dark:bg-[#111D30] border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-400'
                     }`}
                   >
-                    {count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+                    <span>{dept.shortTitleAmharic}</span>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                        isSelected
+                          ? 'bg-white/20 text-white'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+                      }`}
+                    >
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           {/* Department Profile Hero Card */}
           {currentDeptInfo && (
@@ -623,7 +674,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      setActiveDepartment(selectedDeptProfile);
+                      setActiveDepartment(effectiveDeptProfile);
                       onNavigateToEvents();
                     }}
                     className="px-3.5 py-1.5 rounded-xl bg-[#0C4A9E] text-white text-xs font-bold hover:bg-[#072958] transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
@@ -632,25 +683,26 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                     <span>የክፍሉ መርሐ-ግብራት ({deptEvents.length})</span>
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveDepartment(selectedDeptProfile);
-                      // Switch to active department
-                    }}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors flex items-center gap-1.5 cursor-pointer ${
-                      activeDepartment === selectedDeptProfile
-                        ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 text-emerald-700 dark:text-emerald-300'
-                        : 'bg-white dark:bg-[#111D30] border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-[#B88500]'
-                    }`}
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>
-                      {activeDepartment === selectedDeptProfile
-                        ? 'የአሁን ንቁ ክፍል ነው'
-                        : 'እንደ ዋና ክፍል ምረጥ'}
-                    </span>
-                  </button>
+                  {(isSuperAdmin || canSwitchDepartments) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveDepartment(effectiveDeptProfile);
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors flex items-center gap-1.5 cursor-pointer ${
+                        activeDepartment === effectiveDeptProfile
+                          ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 text-emerald-700 dark:text-emerald-300'
+                          : 'bg-white dark:bg-[#111D30] border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-[#B88500]'
+                      }`}
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>
+                        {activeDepartment === effectiveDeptProfile
+                          ? 'የአሁን ንቁ ክፍል ነው'
+                          : 'እንደ ዋና ክፍል ምረጥ'}
+                      </span>
+                    </button>
+                  )}
                 </div>
 
                 <span className="text-[11px] text-slate-400">

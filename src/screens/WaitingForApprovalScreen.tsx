@@ -14,7 +14,13 @@ import {
 } from 'lucide-react';
 import { useArchive } from '../context/ArchiveContext';
 import { HaragDivider, CrossOrnament, ManuscriptBox } from '../components/Ornaments';
-import { SundaySchoolDepartment, SundaySchoolDivision, DIVISIONS } from '../types';
+import {
+  SundaySchoolDepartment,
+  SundaySchoolDivision,
+  DIVISIONS,
+  EhudDepartmentPosition,
+  EHUD_DEPARTMENT_POSITIONS,
+} from '../types';
 
 export const WaitingForApprovalScreen: React.FC<{
   onLogoutClick?: () => void;
@@ -27,41 +33,55 @@ export const WaitingForApprovalScreen: React.FC<{
     activeMembership,
     approvedMemberships,
     requestDepartmentMembership,
+    refreshMembershipAndInvites,
     logout,
   } = useArchive();
 
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [showApplyModal, setShowApplyModal] = useState<boolean>(false);
-  const [targetDeptId, setTargetDeptId] = useState<string>('kinetibeb');
+  const [targetDeptId, setTargetDeptId] = useState<string>(activeDepartment || 'ehud_merha_gibir');
   const [selectedDiv, setSelectedDiv] = useState<SundaySchoolDivision>('youth');
   const [skillsInput, setSkillsInput] = useState<string>('');
   const [responsibilitiesInput, setResponsibilitiesInput] = useState<string>('');
+  const [ehudPosition, setEhudPosition] = useState<EhudDepartmentPosition>('MEMBER');
+  const [sundaySchoolId, setSundaySchoolId] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [applySuccess, setApplySuccess] = useState<string | null>(null);
 
   const currentDeptInfo = departmentsList.find((d) => d.id === activeDepartment);
   const membershipStatus = activeMembership?.status || 'PENDING';
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     setIsRefreshing(true);
-    setTimeout(() => {
+    try {
+      await refreshMembershipAndInvites();
+    } finally {
       setIsRefreshing(false);
-    }, 700);
+    }
   };
+
+  const isModalEhudDept = targetDeptId === 'ehud_merha_gibir';
 
   const handleApplyToAnotherDept = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isModalEhudDept && !sundaySchoolId.trim()) {
+      return;
+    }
     setIsSubmitting(true);
     try {
-      const skillsArray = skillsInput
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
+      const skillsArray = isModalEhudDept
+        ? []
+        : skillsInput
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
       await requestDepartmentMembership(
         targetDeptId,
         selectedDiv,
         skillsArray,
-        responsibilitiesInput
+        isModalEhudDept ? '' : responsibilitiesInput,
+        isModalEhudDept ? sundaySchoolId.trim() : undefined,
+        isModalEhudDept ? ehudPosition : undefined
       );
       setApplySuccess('የአባልነት ማመልከቻዎ በተሳካ ሁኔታ ተልኳል!');
       setTimeout(() => {
@@ -189,6 +209,24 @@ export const WaitingForApprovalScreen: React.FC<{
                 </span>
               </div>
             )}
+            {(activeMembership?.sundaySchoolId || currentUser.sundaySchoolId) && (
+              <div className="flex justify-between items-center text-slate-500 dark:text-slate-400 pb-1.5 border-b border-slate-200/60 dark:border-slate-800">
+                <span>የሰንበት ት/ቤት መታወቂያ ቁጥር፦</span>
+                <span className="font-mono font-bold text-[#0C4A9E] dark:text-[#7FAFFF]">
+                  {activeMembership?.sundaySchoolId || currentUser.sundaySchoolId}
+                </span>
+              </div>
+            )}
+            {activeMembership?.requestedPosition && (
+              <div className="flex justify-between items-center text-slate-500 dark:text-slate-400 pb-1.5 border-b border-slate-200/60 dark:border-slate-800">
+                <span>የተጠየቀ የክፍል ሚና፦</span>
+                <span className="font-bold text-slate-800 dark:text-slate-200">
+                  {EHUD_DEPARTMENT_POSITIONS[activeMembership.requestedPosition]?.rank}ኛ.{' '}
+                  {EHUD_DEPARTMENT_POSITIONS[activeMembership.requestedPosition]?.amharicTitle} (
+                  {EHUD_DEPARTMENT_POSITIONS[activeMembership.requestedPosition]?.englishTitle})
+                </span>
+              </div>
+            )}
             {activeMembership?.serviceSkills && activeMembership.serviceSkills.length > 0 && (
               <div className="text-slate-500 dark:text-slate-400 pt-1">
                 <span className="block mb-1">ያመለከቱባቸው የአገልግሎት ክህሎቶች፦</span>
@@ -234,6 +272,19 @@ export const WaitingForApprovalScreen: React.FC<{
 
           {/* Action buttons */}
           <div className="space-y-2.5">
+            {!activeMembership && (
+              <button
+                onClick={() => {
+                  setTargetDeptId(activeDepartment || 'ehud_merha_gibir');
+                  setShowApplyModal(true);
+                }}
+                className="w-full py-2.5 px-4 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>ለ«{currentDeptInfo?.shortTitleAmharic || activeDepartment}» የአባልነት ጥያቄ ላክ (Submit Request)</span>
+              </button>
+            )}
+
             <button
               onClick={handleRefresh}
               disabled={isRefreshing}
@@ -316,31 +367,66 @@ export const WaitingForApprovalScreen: React.FC<{
                 </select>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  የአገልግሎት ክህሎቶች (በኮማ ይለዩ)
-                </label>
-                <input
-                  type="text"
-                  value={skillsInput}
-                  onChange={(e) => setSkillsInput(e.target.value)}
-                  placeholder="ለምሳሌ፡ መዝሙር፣ ቲያትር፣ የሰዓት ቁጥጥር..."
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
-                />
-              </div>
+              {isModalEhudDept ? (
+                <>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      የሰንበት ት/ቤት መታወቂያ ቁጥር (Sunday School ID) *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      maxLength={50}
+                      value={sundaySchoolId}
+                      onChange={(e) => setSundaySchoolId(e.target.value)}
+                      placeholder="ለምሳሌ፡ TS-2019-042"
+                      className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      የተጠየቀ የክፍል ሚና *
+                    </label>
+                    <select
+                      value={ehudPosition}
+                      onChange={(e) => setEhudPosition(e.target.value as EhudDepartmentPosition)}
+                      className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
+                    >
+                      <option value="DEPARTMENT_HEAD">1ኛ. የክፍል ኃላፊ (Department Head)</option>
+                      <option value="MIKITIL_HEAD">2ኛ. ምክትል ኃላፊ (Mikitil Head)</option>
+                      <option value="MEMBER">3ኛ. አባል (Member)</option>
+                    </select>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      የአገልግሎት ክህሎቶች (በኮማ ይለዩ)
+                    </label>
+                    <input
+                      type="text"
+                      value={skillsInput}
+                      onChange={(e) => setSkillsInput(e.target.value)}
+                      placeholder="ለምሳሌ፡ መዝሙር፣ ቲያትር፣ የሰዓት ቁጥጥር..."
+                      className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
+                    />
+                  </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  የሚመርጡት ኃላፊነት
-                </label>
-                <input
-                  type="text"
-                  value={responsibilitiesInput}
-                  onChange={(e) => setResponsibilitiesInput(e.target.value)}
-                  placeholder="ለምሳሌ፡ የመድረክ መሪነት፣ የጽሑፍ ዝግጅት..."
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
-                />
-              </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      የሚመርጡት ኃላፊነት
+                    </label>
+                    <input
+                      type="text"
+                      value={responsibilitiesInput}
+                      onChange={(e) => setResponsibilitiesInput(e.target.value)}
+                      placeholder="ለምሳሌ፡ የመድረክ መሪነት፣ የጽሑፍ ዝግጅት..."
+                      className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
+                    />
+                  </div>
+                </>
+              )}
 
               <div className="flex gap-2 pt-2">
                 <button

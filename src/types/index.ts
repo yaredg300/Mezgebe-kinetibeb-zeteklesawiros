@@ -21,6 +21,32 @@ export const USER_ROLES: Record<UserRole, { amharicTitle: string; description: s
   SUPER_ADMIN: { amharicTitle: 'ዋና አስተዳዳሪ', description: 'ሙሉ ቁጥጥር' },
 };
 
+export type EhudDepartmentPosition = 'DEPARTMENT_HEAD' | 'MIKITIL_HEAD' | 'MEMBER';
+
+export const EHUD_DEPARTMENT_POSITIONS: Record<
+  EhudDepartmentPosition,
+  { rank: number; amharicTitle: string; englishTitle: string; description: string }
+> = {
+  DEPARTMENT_HEAD: {
+    rank: 1,
+    amharicTitle: 'የክፍል ኃላፊ',
+    englishTitle: 'Department Head',
+    description: '1ኛ. የእሁድ መርሐ ግብር ክፍል ዋና ኃላፊ',
+  },
+  MIKITIL_HEAD: {
+    rank: 2,
+    amharicTitle: 'ምክትል ኃላፊ',
+    englishTitle: 'Mikitil Head',
+    description: '2ኛ. የእሁድ መርሐ ግብር ክፍል ምክትል ኃላፊ',
+  },
+  MEMBER: {
+    rank: 3,
+    amharicTitle: 'አባል',
+    englishTitle: 'Member',
+    description: '3ኛ. የእሁድ መርሐ ግብር ክፍል አባል',
+  },
+};
+
 export type SubmissionStatus =
   | 'DRAFT'
   | 'UNDER_REVIEW'
@@ -373,6 +399,8 @@ export interface UserProfile {
   role: UserRole;
   department: string;
   departmentId?: SundaySchoolDepartment;
+  sundaySchoolId?: string;
+  requestedPosition?: EhudDepartmentPosition;
   joinedDate: string;
   myWorksCount: number;
   mySubmissionsCount: number;
@@ -554,16 +582,39 @@ export interface DepartmentMembership {
   departmentId: string;
   departmentName: string;
   division?: SundaySchoolDivision;
+  sundaySchoolId?: string;
+  requestedPosition?: EhudDepartmentPosition;
   serviceSkills?: string[];
   preferredResponsibilities?: string;
   role: UserRole; // 'MEMBER' | 'CONTRIBUTOR' | 'REVIEWER' | 'EDITOR' | 'ADMIN'
+  canApproveMembers?: boolean; // Department-scoped authority to confirm/authorize members in this department only
   status: MembershipApprovalStatus;
+  inviteId?: string;
   rejectionReason?: string;
   approvedBy?: string;
   approvedByName?: string;
   approvedAt?: string;
   statusUpdatedAt?: string;
   createdAt: string;
+}
+
+export interface DepartmentInvite {
+  id: string;
+  emailLower: string;
+  fullName: string;
+  departmentId: string;
+  departmentName?: string;
+  division?: SundaySchoolDivision;
+  sundaySchoolId?: string;
+  requestedPosition?: EhudDepartmentPosition;
+  role: UserRole;
+  canApproveMembers?: boolean;
+  status: 'ACTIVE' | 'CLAIMED' | 'CANCELLED';
+  invitedBy: string;
+  invitedByName?: string;
+  createdAt?: string;
+  claimedBy?: string;
+  claimedAt?: string;
 }
 
 // =========================================================================

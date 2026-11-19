@@ -10,12 +10,14 @@ export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfi
 // Initialize Firestore
 export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
 
-// Initialize Auth with Google Workspace Drive scopes
+// Initialize Auth: keep default Google Sign-In free of restricted Drive scopes so all users can sign in
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
-googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
-googleProvider.addScope('https://www.googleapis.com/auth/drive.readonly');
-googleProvider.addScope('https://www.googleapis.com/auth/drive');
+googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+// Dedicated Google Drive provider used only when explicitly connecting Google Drive
+export const googleDriveProvider = new GoogleAuthProvider();
+googleDriveProvider.addScope('https://www.googleapis.com/auth/drive.file');
 
 // In-memory access token cache (CRITICAL: Do NOT store in localStorage)
 let cachedAccessToken: string | null = null;
@@ -37,9 +39,14 @@ export async function testFirestoreConnection(): Promise<boolean> {
       new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000)),
     ]);
     return true;
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.error('Please check your Firebase configuration.');
+    }
     // Firestore operates automatically in offline cache mode when backend is unreachable
     return false;
   }
 }
+
+void testFirestoreConnection();
 
