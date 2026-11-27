@@ -506,11 +506,16 @@ export interface SundayDailyPlanSheet {
   purpose: string;
   slots: SundayTimetableSlot[];
   preProgramNeeds: string[];
+  preProgramChecklistState?: Record<string, boolean>;
+  squadName?: string;
+  updatedAt?: string;
+  updatedBy?: string;
   postProgramStats?: {
     participantsCount?: number;
     actualStartTime?: string;
     actualEndTime?: string;
     evaluationNotes?: string;
+    actualAttendanceNotes?: string;
   };
 }
 

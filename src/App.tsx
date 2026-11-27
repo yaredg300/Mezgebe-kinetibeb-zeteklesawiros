@@ -57,12 +57,33 @@ export const AppContent: React.FC = () => {
     canApproveDeptMembers,
     hasPendingApproval,
     isSuperAdmin,
+    isDepartmentPortalLocked,
     approvedDepartmentsList,
     activeMembership,
     canSwitchDepartments,
+    firebaseUser,
+    isAuthReady,
   } = useArchive();
 
-  const [workspaceMode, setWorkspaceMode] = useState<'WORKSPACE' | 'HERITAGE'>('WORKSPACE');
+  const [workspaceMode, setWorkspaceMode] = useState<'WORKSPACE' | 'HERITAGE'>(() =>
+    firebaseUser ? 'WORKSPACE' : 'HERITAGE'
+  );
+  const prevAuthUidRef = React.useRef<string | null>(firebaseUser?.uid || null);
+
+  React.useEffect(() => {
+    if (!isAuthReady) return;
+    const currentUid = firebaseUser?.uid || null;
+    if (currentUid !== prevAuthUidRef.current) {
+      prevAuthUidRef.current = currentUid;
+      if (currentUid && (isSuperAdmin || activeMembership?.status === 'APPROVED')) {
+        setWorkspaceMode('WORKSPACE');
+      } else {
+        setWorkspaceMode('HERITAGE');
+      }
+    } else if (!currentUid && workspaceMode === 'WORKSPACE') {
+      setWorkspaceMode('HERITAGE');
+    }
+  }, [isAuthReady, firebaseUser, isSuperAdmin, activeMembership?.status]);
 
   // Root authentication / onboarding flow with persistence check
   const [flow, setFlow] = useState<AppFlow>(() => {
@@ -148,6 +169,10 @@ export const AppContent: React.FC = () => {
           setActiveDepartment(dept);
           markOnboardedAndProceed('main');
         }}
+        onGoToLogin={(dept) => {
+          if (dept) setActiveDepartment(dept);
+          setFlow('login');
+        }}
       />
     );
   }
@@ -206,10 +231,14 @@ export const AppContent: React.FC = () => {
     return (
       <WaitingForApprovalScreen
         onLogoutClick={() => setFlow('login')}
-        onExploreOtherDepartment={(dept) => setActiveDepartment(dept)}
+        onExploreOtherDepartment={
+          !isDepartmentPortalLocked ? (dept) => setActiveDepartment(dept) : undefined
+        }
       />
     );
   }
+
+  const allowCrossDeptSwitch = !isDepartmentPortalLocked && canSwitchDepartments;
 
   // 6. Main Application Shell
   return (
@@ -219,7 +248,7 @@ export const AppContent: React.FC = () => {
         currentTab={activeTab}
         onTabSelected={handleTabSelected}
         onCreateWorkClick={() => handleOpenCreateWork()}
-        onOpenDepartmentsHub={canSwitchDepartments ? () => setShowDepartmentsModal(true) : undefined}
+        onOpenDepartmentsHub={allowCrossDeptSwitch ? () => setShowDepartmentsModal(true) : undefined}
       />
 
       {/* Main Content Area */}
@@ -264,56 +293,60 @@ export const AppContent: React.FC = () => {
           {deepScreen.type === 'none' && (
             <>
               {activeTab === 'HOME' && (
-                <div className="space-y-4 max-w-7xl mx-auto px-3 sm:px-6 py-4">
-                  {/* Top View Mode Switcher between Department Workspace and Heritage Overview */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setWorkspaceMode('WORKSPACE')}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                          workspaceMode === 'WORKSPACE'
-                            ? 'bg-[#0C4A9E] text-white shadow-xs'
-                            : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-                        }`}
-                      >
-                        <span>የክፍሉ የሥራ ገበታ (Workspace)</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setWorkspaceMode('HERITAGE')}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                          workspaceMode === 'HERITAGE'
-                            ? 'bg-[#0C4A9E] text-white shadow-xs'
-                            : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-                        }`}
-                      >
-                        <span>የክፍሉ መግቢያና ማህደር (Overview)</span>
-                      </button>
+                <div>
+                  {/* Compact Segmented View Mode Switcher */}
+                  <div className="bg-white/90 dark:bg-[#111D30]/90 border-b border-slate-200 dark:border-slate-800 px-3 sm:px-6 py-2">
+                    <div className="max-w-7xl mx-auto flex items-center justify-between gap-2">
+                      <div className="inline-flex items-center p-0.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                        <button
+                          type="button"
+                          onClick={() => setWorkspaceMode('WORKSPACE')}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            workspaceMode === 'WORKSPACE'
+                              ? 'bg-[#0C4A9E] text-white shadow-xs'
+                              : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                          }`}
+                        >
+                          የሥራ ገበታ
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setWorkspaceMode('HERITAGE')}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            workspaceMode === 'HERITAGE'
+                              ? 'bg-[#0C4A9E] text-white shadow-xs'
+                              : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                          }`}
+                        >
+                          {isDepartmentPortalLocked ? 'መርሐ ግብርና ዕቅድ' : 'ማህደርና መግቢያ'}
+                        </button>
+                      </div>
                     </div>
                   </div>
 
                   {workspaceMode === 'WORKSPACE' ? (
-                    isDeptAdmin || canApproveDeptMembers ? (
-                      <DepartmentAdminWorkspace
-                        onOpenWorkClick={handleOpenWork}
-                        onOpenScheduleDetails={() => {}}
-                      />
-                    ) : (
-                      <DepartmentMemberWorkspace
-                        onOpenWorkClick={handleOpenWork}
-                        onOpenScheduleDetails={() => {}}
-                      />
-                    )
+                    <div className="max-w-7xl mx-auto px-3 sm:px-6 py-3">
+                      {isDeptAdmin || canApproveDeptMembers ? (
+                        <DepartmentAdminWorkspace
+                          onOpenWorkClick={handleOpenWork}
+                          onOpenScheduleDetails={() => setWorkspaceMode('HERITAGE')}
+                        />
+                      ) : (
+                        <DepartmentMemberWorkspace
+                          onOpenWorkClick={handleOpenWork}
+                          onOpenScheduleDetails={() => setWorkspaceMode('HERITAGE')}
+                        />
+                      )}
+                    </div>
                   ) : (
                     activeDepartment === 'ehud_merha_gibir' ? (
                       <EhudMerhaGibirScreen
                         onSwitchToKinetibeb={
-                          canSwitchDepartments ? () => setActiveDepartment('kinetibeb') : undefined
+                          allowCrossDeptSwitch ? () => setActiveDepartment('kinetibeb') : undefined
                         }
                         onOpenWorkClick={handleOpenWork}
                         onOpenDepartmentsHub={
-                          canSwitchDepartments ? () => setShowDepartmentsModal(true) : undefined
+                          allowCrossDeptSwitch ? () => setShowDepartmentsModal(true) : undefined
                         }
                       />
                     ) : activeDepartment === 'kinetibeb' ? (
@@ -323,22 +356,22 @@ export const AppContent: React.FC = () => {
                         onSearchClick={() => handleTabSelected('SEARCH')}
                         onCreateWorkClick={handleOpenCreateWork}
                         onOpenDepartmentsHub={
-                          canSwitchDepartments ? () => setShowDepartmentsModal(true) : undefined
+                          allowCrossDeptSwitch ? () => setShowDepartmentsModal(true) : undefined
                         }
                       />
                     ) : (
                       <DepartmentPortalScreen
                         departmentId={activeDepartment}
                         onOpenDepartmentsHub={
-                          canSwitchDepartments ? () => setShowDepartmentsModal(true) : undefined
+                          allowCrossDeptSwitch ? () => setShowDepartmentsModal(true) : () => {}
                         }
                         onSwitchToKinetibeb={
-                          canSwitchDepartments ? () => setActiveDepartment('kinetibeb') : undefined
+                          allowCrossDeptSwitch ? () => setActiveDepartment('kinetibeb') : () => {}
                         }
                         onSwitchToEhudMerhaGibir={
-                          canSwitchDepartments
+                          allowCrossDeptSwitch
                             ? () => setActiveDepartment('ehud_merha_gibir')
-                            : undefined
+                            : () => {}
                         }
                         onNavigateToArchive={() => handleTabSelected('ARCHIVE')}
                         onNavigateToSearch={() => handleTabSelected('SEARCH')}
@@ -371,13 +404,17 @@ export const AppContent: React.FC = () => {
                 <ProfileScreen
                   onSelectWork={handleOpenWork}
                   onNavigateToReviewerQueue={handleOpenReviewerQueue}
-                  onNavigateToCreateWork={handleOpenCreateWork}
+                  onNavigateToCreateWork={() => handleOpenCreateWork()}
                   onNavigateToEvents={() => handleTabSelected('EVENTS')}
                   onOpenChurchInfo={() => setShowChurchInfo(true)}
                   onSwitchDivision={() => setFlow('division_selection')}
                   onNavigateToLogin={() => setFlow('login')}
                   onOpenDepartmentsModal={() => setShowDepartmentsModal(true)}
                   onNavigateToDepartmentGateway={() => setFlow('department_gateway')}
+                  onOpenWorkspace={() => {
+                    setWorkspaceMode('WORKSPACE');
+                    handleTabSelected('HOME');
+                  }}
                 />
               )}
             </>
@@ -424,7 +461,7 @@ export const AppContent: React.FC = () => {
       />
 
       {/* All Sunday School Departments Directory & Switcher Modal */}
-      {canSwitchDepartments && (
+      {allowCrossDeptSwitch && (
         <AllDepartmentsModal
           isOpen={showDepartmentsModal}
           onClose={() => setShowDepartmentsModal(false)}

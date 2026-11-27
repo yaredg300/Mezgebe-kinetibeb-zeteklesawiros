@@ -10,21 +10,15 @@ import {
   UserX,
   PlusCircle,
   Search,
-  Filter,
-  ArrowRight,
   Shield,
   Building2,
   CalendarDays,
-  Send,
-  Eye,
   ChevronRight,
   X,
   FileText,
-  BadgeAlert,
   AlertCircle,
   Check,
   RotateCcw,
-  Sparkles,
   Mail,
   UserPlus,
 } from 'lucide-react';
@@ -43,15 +37,15 @@ import {
   USER_ROLES,
   EHUD_DEPARTMENT_POSITIONS,
 } from '../types';
-import { HaragDivider, CrossOrnament, ManuscriptBox } from '../components/Ornaments';
+import {
+  YOUTH_ORGANIZER_SQUADS_2019,
+  CHILDREN_TEACHER_SQUADS_2019,
+  MAEKELAWIYAN_TEACHER_SQUADS_2019,
+} from '../data/youthCombinedPlanData';
 
-type AdminWorkspaceTab =
-  | 'OVERVIEW'
-  | 'REQUESTS'
-  | 'MEMBERS'
-  | 'SCHEDULE_AGENDA'
-  | 'ASSIGNMENTS'
-  | 'SUBMISSIONS';
+type AdminWorkspaceTab = 'PROGRAMS' | 'MEMBERS';
+type ProgramsSubView = 'OVERVIEW' | 'AGENDA' | 'TASKS';
+type MembersSubView = 'DIRECTORY' | 'REQUESTS';
 
 export const DepartmentAdminWorkspace: React.FC<{
   memberAuthOnly?: boolean;
@@ -70,6 +64,7 @@ export const DepartmentAdminWorkspace: React.FC<{
     dailyPlanSheets,
     currentUser,
     isSuperAdmin,
+    isDepartmentPortalLocked,
     approveMembershipRequest,
     appointUserToDepartment,
     toggleMemberApprovalAuthority,
@@ -85,11 +80,18 @@ export const DepartmentAdminWorkspace: React.FC<{
   } = useArchive();
 
   const [activeTab, setActiveTab] = useState<AdminWorkspaceTab>(
-    memberAuthOnly ? 'REQUESTS' : 'OVERVIEW'
+    memberAuthOnly ? 'MEMBERS' : 'PROGRAMS'
   );
+  const [programsSubView, setProgramsSubView] = useState<ProgramsSubView>('OVERVIEW');
+  const [membersSubView, setMembersSubView] = useState<MembersSubView>(
+    memberAuthOnly ? 'REQUESTS' : 'DIRECTORY'
+  );
+  const [overviewSheetId, setOverviewSheetId] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [userDirectoryQuery, setUserDirectoryQuery] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [scheduleDivFilter, setScheduleDivFilter] = useState<'ALL' | SundaySchoolDivision>('ALL');
+  const [scheduleMonthFilter, setScheduleMonthFilter] = useState<string>('ALL');
 
   // Pre-approval by Email State
   const [inviteEmail, setInviteEmail] = useState<string>('');
@@ -180,9 +182,10 @@ export const DepartmentAdminWorkspace: React.FC<{
   const rejectedOrSuspendedMemberships = deptMemberships.filter(
     (m) => m.status === 'REJECTED' || m.status === 'SUSPENDED'
   );
-  const otherDeptPendingRequests = isSuperAdmin
-    ? departmentMemberships.filter((m) => m.status === 'PENDING' && m.departmentId !== activeDepartment)
-    : [];
+  const otherDeptPendingRequests =
+    !isDepartmentPortalLocked && isSuperAdmin
+      ? departmentMemberships.filter((m) => m.status === 'PENDING' && m.departmentId !== activeDepartment)
+      : [];
   const activeInvitesForDept = departmentInvites.filter(
     (inv) => inv.departmentId === activeDepartment && inv.status === 'ACTIVE'
   );
@@ -253,6 +256,22 @@ export const DepartmentAdminWorkspace: React.FC<{
     if (activeDepartment === 'kinetibeb') return sheet.division === 'youth';
     return true;
   });
+
+  const filteredScheduleSheets = relevantDailySheets.filter((sheet) => {
+    const matchesDiv = scheduleDivFilter === 'ALL' || sheet.division === scheduleDivFilter;
+    const matchesMonth = scheduleMonthFilter === 'ALL' || sheet.monthAmharic === scheduleMonthFilter;
+    return matchesDiv && matchesMonth;
+  });
+
+  const availableScheduleMonths = Array.from(
+    new Set(relevantDailySheets.map((s) => s.monthAmharic).filter(Boolean))
+  );
+
+  const allEhudSquads = [
+    ...YOUTH_ORGANIZER_SQUADS_2019,
+    ...CHILDREN_TEACHER_SQUADS_2019,
+    ...MAEKELAWIYAN_TEACHER_SQUADS_2019,
+  ];
 
   // Handle open direct assignment from agenda slot
   const handleOpenSlotAssignment = (
@@ -326,888 +345,828 @@ export const DepartmentAdminWorkspace: React.FC<{
     }
   };
 
-  // Workload check for selected lead
   const selectedLeadWorkload = assignForm.responsibleLeadId
     ? checkMemberWorkload(assignForm.responsibleLeadId, assignForm.programDate)
     : { activeTaskCount: 0, hasOverlap: false, overlappingAssignments: [] };
 
-  return (
-    <div className="space-y-6 pb-12">
-      {/* 1. Header Banner */}
-      <div className="rounded-2xl p-5 sm:p-6 bg-gradient-to-r from-[#0C4A9E] via-[#072958] to-[#141926] text-white shadow-lg relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-80 h-80 bg-[#B88500]/15 rounded-full blur-3xl pointer-events-none" />
+  const activeOverviewSheet =
+    relevantDailySheets.find((s) => s.id === overviewSheetId) || relevantDailySheets[0];
 
-        <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-              <span className="px-2.5 py-0.5 rounded-full bg-[#B88500] text-slate-900 text-[10px] font-black tracking-wider uppercase">
-                {memberAuthOnly ? 'የአባላት ማረጋገጫ ኃላፊ' : 'የክፍሉ አስተዳዳሪ ዴስክ'}
+  const handleOpenAssignModal = () => {
+    const defaultSheet = activeOverviewSheet || relevantDailySheets[0];
+    const defaultSlot = defaultSheet?.slots?.[0];
+    setAssignForm({
+      scheduleProgramId: defaultSheet?.id || 'general_program',
+      agendaSlotId: defaultSlot?.id || 'general_slot',
+      agendaSlotTitle: defaultSlot?.slotTitle || 'የእሁድ ክፍለ-ጊዜ',
+      division: defaultSheet?.division || 'youth',
+      title: '',
+      instructions: '',
+      assignedMemberIds: approvedMembers.length > 0 ? [approvedMembers[0].userId] : [],
+      groupName: '',
+      responsibleLeadId: approvedMembers.length > 0 ? approvedMembers[0].userId : '',
+      programDate: defaultSheet?.dateAmharic || 'የእሁድ መርሐ ግብር',
+      programTime: defaultSlot?.timeRange || defaultSheet?.timeAmharic || '7:30–9:30',
+      deadlineDate: defaultSheet?.dateAmharic || 'ከመርሐ ግብሩ 2 ቀን በፊት',
+      requiredDeliverable: '',
+      overrideOverlap: false,
+    });
+    setShowAssignModal(true);
+  };
+
+  return (
+    <div className="space-y-4 pb-10">
+      {/* 1. Compact Workspace Header & Sub-tabs */}
+      <div className="rounded-xl bg-white dark:bg-[#111D30] border border-slate-200 dark:border-slate-800 p-4 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+              <span className="font-semibold text-[#8B0000] dark:text-[#FFD54F]">
+                {memberAuthOnly ? 'የአባላት ማረጋገጫ ኃላፊ' : 'የአስተዳዳሪ ዴስክ'}
               </span>
-              <span className="text-xs text-blue-200">
-                {isSuperAdmin
-                  ? 'የበላይ አስተዳዳሪ (Super Admin)'
+              <span aria-hidden="true">·</span>
+              <span>
+                {isSuperAdmin && !isDepartmentPortalLocked
+                  ? 'የበላይ አስተዳዳሪ'
                   : memberAuthOnly
-                  ? `የ«${currentDeptInfo?.shortTitleAmharic || activeDepartment}» አባላት ብቻ አጽዳቂ`
-                  : 'የክፍል ኃላፊ (Dept Admin)'}
+                  ? `የ«${currentDeptInfo?.shortTitleAmharic || activeDepartment}» ብቻ`
+                  : 'የክፍል ኃላፊ'}
               </span>
             </div>
-            <h1 className="text-xl sm:text-2xl font-bold font-serif-ethiopic text-[#FFD54F]">
+            <h1 className="text-lg sm:text-xl font-bold font-serif-ethiopic text-slate-900 dark:text-white truncate mt-0.5">
               {currentDeptInfo?.titleAmharic || 'የክፍሉ የሥራ ገበታ'}
             </h1>
-            <p className="text-xs sm:text-sm text-blue-100 font-serif-ethiopic mt-0.5">
-              {memberAuthOnly
-                ? 'የዚህን ክፍል አባላት ብቻ ማረጋገጥና ማጽደቅ (ለሌሎች ክፍሎች አይሰራም)'
-                : 'የአባላት ማረጋገጫ፣ የሥራ ምደባዎች፣ ዕለታዊ አጀንዳዎችና የቀረቡ ሰነዶች ግምገማ'}
-            </p>
           </div>
 
           {!memberAuthOnly && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
+              {onOpenScheduleDetails && (
+                <button
+                  type="button"
+                  onClick={() => onOpenScheduleDetails('ehud_portal')}
+                  className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/70 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+                >
+                  <CalendarDays className="w-3.5 h-3.5 text-[#0C4A9E] dark:text-[#7FAFFF]" />
+                  <span>ሙሉ ዕቅድ</span>
+                </button>
+              )}
               <button
-                onClick={() => {
-                  setAssignForm({
-                    scheduleProgramId: 'yth_hidar_6',
-                    agendaSlotId: 'general_slot',
-                    agendaSlotTitle: 'የእሁድ ክፍለ-ጊዜ',
-                    division: 'youth',
-                    title: '',
-                    instructions: '',
-                    assignedMemberIds: approvedMembers.length > 0 ? [approvedMembers[0].userId] : [],
-                    groupName: '',
-                    responsibleLeadId: approvedMembers.length > 0 ? approvedMembers[0].userId : '',
-                    programDate: 'ኅዳር 6 2019 ዓ.ም.',
-                    programTime: '7:30–9:30',
-                    deadlineDate: 'ኅዳር 4 2019 ዓ.ም.',
-                    requiredDeliverable: '',
-                    overrideOverlap: false,
-                  });
-                  setShowAssignModal(true);
-                }}
-                className="px-4 py-2 rounded-full bg-[#B88500] hover:bg-[#9E7200] text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md transition-colors"
+                type="button"
+                onClick={handleOpenAssignModal}
+                className="px-3.5 py-2 rounded-lg bg-[#0C4A9E] hover:bg-[#072958] text-white font-bold text-xs flex items-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer"
               >
-                <PlusCircle className="w-4 h-4" />
-                <span>አዲስ ሥራ መድብ (Assign)</span>
+                <PlusCircle className="w-3.5 h-3.5" />
+                <span>አዲስ ሥራ መድብ</span>
               </button>
             </div>
           )}
         </div>
 
-        {/* Workspace Sub-tabs Navigation */}
-        <div className="flex items-center gap-1.5 mt-5 overflow-x-auto pb-1 scrollbar-none border-t border-white/10 pt-3">
-          {(memberAuthOnly
-            ? [
-                {
-                  id: 'REQUESTS',
-                  label: 'የአባልነት ጥያቄዎችና ማረጋገጫ',
-                  count: pendingRequests.length,
-                },
-                { id: 'MEMBERS', label: 'የክፍሉ የጸደቁ አባላት', count: approvedMembers.length },
-              ]
-            : [
-                { id: 'OVERVIEW', label: 'አጠቃላይ (Overview)', count: undefined },
-                {
-                  id: 'REQUESTS',
-                  label: 'የአባልነት ጥያቄዎች',
-                  count: pendingRequests.length + otherDeptPendingRequests.length,
-                },
-                { id: 'MEMBERS', label: 'የክፍሉ አባላትና ጫና', count: approvedMembers.length },
-                { id: 'SCHEDULE_AGENDA', label: 'የመርሐ ግብር ክፍለ-ጊዜዎች', count: relevantDailySheets.length },
-                { id: 'ASSIGNMENTS', label: 'የሥራ ምደባዎች', count: deptAssignments.length },
-                { id: 'SUBMISSIONS', label: 'የቀረቡ ሥራዎችና ግምገማ', count: submittedTasks.length },
-              ]
-          ).map((tab) => (
+        {/* 2 Primary Branches Navigation */}
+        <div className="flex items-center gap-1.5 border-t border-slate-100 dark:border-slate-800 pt-2.5">
+          {!memberAuthOnly && (
             <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as AdminWorkspaceTab)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap flex items-center gap-1.5 transition-colors ${
-                activeTab === tab.id
-                  ? 'bg-white text-[#0C4A9E] shadow-sm'
-                  : 'bg-white/10 text-white/80 hover:bg-white/20'
+              type="button"
+              onClick={() => setActiveTab('PROGRAMS')}
+              className={`flex-1 sm:flex-initial px-3.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                activeTab === 'PROGRAMS'
+                  ? 'bg-[#0C4A9E] text-white'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
-              <span>{tab.label}</span>
-              {typeof tab.count === 'number' && (
-                <span
-                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
-                    activeTab === tab.id
-                      ? tab.count > 0 && tab.id === 'REQUESTS'
-                        ? 'bg-rose-600 text-white'
-                        : 'bg-blue-100 text-blue-900'
-                      : tab.count > 0 && tab.id === 'REQUESTS'
-                      ? 'bg-rose-500 text-white'
-                      : 'bg-white/20 text-white'
-                  }`}
-                >
-                  {tab.count}
-                </span>
-              )}
+              <CalendarDays className="w-3.5 h-3.5" />
+              <span>መርሐ ግብር እና ምደባ</span>
+              <span
+                className={`font-mono tabular-nums text-[11px] ${
+                  activeTab === 'PROGRAMS'
+                    ? 'text-white/90'
+                    : submittedTasks.length > 0
+                    ? 'text-indigo-600 dark:text-indigo-400 font-black'
+                    : 'text-slate-400 dark:text-slate-500'
+                }`}
+              >
+                {deptAssignments.length}
+              </span>
             </button>
-          ))}
+          )}
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('MEMBERS')}
+            className={`flex-1 sm:flex-initial px-3.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+              activeTab === 'MEMBERS'
+                ? 'bg-[#0C4A9E] text-white'
+                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            <span>አባላት እና ጥያቄዎች</span>
+            <span
+              className={`font-mono tabular-nums text-[11px] ${
+                activeTab === 'MEMBERS'
+                  ? 'text-white/90'
+                  : 'text-slate-400 dark:text-slate-500'
+              }`}
+            >
+              {approvedMembers.length}
+            </span>
+            {pendingRequests.length + otherDeptPendingRequests.length > 0 && (
+              <span
+                className={`font-mono tabular-nums text-[11px] font-black ${
+                  activeTab === 'MEMBERS'
+                    ? 'text-amber-200'
+                    : 'text-amber-600 dark:text-amber-400'
+                }`}
+              >
+                · +{pendingRequests.length + otherDeptPendingRequests.length}
+              </span>
+            )}
+          </button>
         </div>
       </div>
 
-      {/* 2. OVERVIEW TAB */}
-      {activeTab === 'OVERVIEW' && (
-        <div className="space-y-6">
-          {/* Key Metrics Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            <div
-              onClick={() => setActiveTab('MEMBERS')}
-              className="p-4 rounded-xl bg-white dark:bg-[#111D30] border border-slate-200 dark:border-slate-800 shadow-xs cursor-pointer hover:border-[#0C4A9E] transition-all"
-            >
-              <div className="flex items-center justify-between text-slate-400 mb-1">
-                <span className="text-[11px] font-bold">አባላት</span>
-                <Users className="w-4 h-4 text-[#0C4A9E]" />
-              </div>
-              <p className="text-2xl font-black text-slate-900 dark:text-white">
-                {approvedMembers.length}
-              </p>
-              <span className="text-[10px] text-emerald-600 font-bold">የጸደቁ አባላት</span>
-            </div>
-
-            <div
-              onClick={() => setActiveTab('REQUESTS')}
-              className="p-4 rounded-xl bg-white dark:bg-[#111D30] border border-slate-200 dark:border-slate-800 shadow-xs cursor-pointer hover:border-amber-500 transition-all"
-            >
-              <div className="flex items-center justify-between text-slate-400 mb-1">
-                <span className="text-[11px] font-bold">አዳዲስ ጥያቄዎች</span>
-                <Clock className="w-4 h-4 text-amber-500" />
-              </div>
-              <p className="text-2xl font-black text-amber-600 dark:text-amber-400">
-                {pendingRequests.length}
-              </p>
-              <span className="text-[10px] text-slate-500">ማረጋገጫ የሚጠብቁ</span>
-            </div>
-
-            <div
-              onClick={() => setActiveTab('SCHEDULE_AGENDA')}
-              className="p-4 rounded-xl bg-white dark:bg-[#111D30] border border-slate-200 dark:border-slate-800 shadow-xs cursor-pointer hover:border-[#B88500] transition-all"
-            >
-              <div className="flex items-center justify-between text-slate-400 mb-1">
-                <span className="text-[11px] font-bold">መርሐ ግብሮች</span>
-                <CalendarDays className="w-4 h-4 text-[#B88500]" />
-              </div>
-              <p className="text-2xl font-black text-slate-900 dark:text-white">
-                {relevantDailySheets.length}
-              </p>
-              <span className="text-[10px] text-slate-500">የ2019 ዕለታዊ እቅዶች</span>
-            </div>
-
-            <div
-              onClick={() => setActiveTab('ASSIGNMENTS')}
-              className="p-4 rounded-xl bg-white dark:bg-[#111D30] border border-slate-200 dark:border-slate-800 shadow-xs cursor-pointer hover:border-blue-500 transition-all"
-            >
-              <div className="flex items-center justify-between text-slate-400 mb-1">
-                <span className="text-[11px] font-bold">የሥራ ምደባዎች</span>
-                <CalendarCheck2 className="w-4 h-4 text-blue-600" />
-              </div>
-              <p className="text-2xl font-black text-slate-900 dark:text-white">
-                {deptAssignments.length}
-              </p>
-              <span className="text-[10px] text-blue-600 font-bold">{inProgressTasks.length} በሂደት ላይ</span>
-            </div>
-
-            <div
-              onClick={() => setActiveTab('SUBMISSIONS')}
-              className="p-4 rounded-xl bg-white dark:bg-[#111D30] border border-slate-200 dark:border-slate-800 shadow-xs cursor-pointer hover:border-indigo-500 transition-all"
-            >
-              <div className="flex items-center justify-between text-slate-400 mb-1">
-                <span className="text-[11px] font-bold">የቀረቡ ሰነዶች</span>
-                <FileCheck className="w-4 h-4 text-indigo-600" />
-              </div>
-              <p className="text-2xl font-black text-indigo-600 dark:text-indigo-400">
-                {submittedTasks.length}
-              </p>
-              <span className="text-[10px] text-slate-500">ግምገማ የሚጠብቁ</span>
-            </div>
-
-            <div
-              onClick={() => setActiveTab('ASSIGNMENTS')}
-              className="p-4 rounded-xl bg-white dark:bg-[#111D30] border border-slate-200 dark:border-slate-800 shadow-xs cursor-pointer hover:border-emerald-500 transition-all"
-            >
-              <div className="flex items-center justify-between text-slate-400 mb-1">
-                <span className="text-[11px] font-bold">የተጠናቀቁ</span>
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-              </div>
-              <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
-                {completedTasks.length}
-              </p>
-              <span className="text-[10px] text-slate-500">የጸደቁ ሥራዎች</span>
-            </div>
+      {/* =========================================================================
+          BRANCH 1: PROGRAMS, SCHEDULES & ASSIGNMENTS
+         ========================================================================= */}
+      {!memberAuthOnly && activeTab === 'PROGRAMS' && (
+        <div className="space-y-4">
+          {/* Unified 4-Column KPI Strip */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 rounded-xl bg-white dark:bg-[#111D30] border border-slate-200 dark:border-slate-800 divide-y lg:divide-y-0 divide-x divide-slate-200 dark:divide-slate-800 overflow-hidden">
+            {[
+              {
+                label: 'የዕለት ሉሆች',
+                value: relevantDailySheets.length,
+                accent: 'text-[#0C4A9E] dark:text-[#7FAFFF]',
+                onClick: () => setProgramsSubView('AGENDA'),
+              },
+              {
+                label: 'ንቁ ምደባዎች',
+                value: inProgressTasks.length + submittedTasks.length,
+                accent: 'text-slate-900 dark:text-white',
+                onClick: () => {
+                  setStatusFilter('ALL');
+                  setProgramsSubView('TASKS');
+                },
+              },
+              {
+                label: 'ግምገማ የሚጠብቁ',
+                value: submittedTasks.length,
+                accent:
+                  submittedTasks.length > 0
+                    ? 'text-indigo-600 dark:text-indigo-400'
+                    : 'text-slate-900 dark:text-white',
+                onClick: () => {
+                  setStatusFilter('SUBMITTED');
+                  setProgramsSubView('TASKS');
+                },
+              },
+              {
+                label: 'የተጠናቀቁ ሥራዎች',
+                value: completedTasks.length,
+                accent: 'text-emerald-600 dark:text-emerald-400',
+                onClick: () => {
+                  setStatusFilter('COMPLETED');
+                  setProgramsSubView('TASKS');
+                },
+              },
+            ].map((stat, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={stat.onClick}
+                className="p-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors cursor-pointer"
+              >
+                <span className="block text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                  {stat.label}
+                </span>
+                <span className={`block text-xl font-bold font-mono tabular-nums mt-0.5 ${stat.accent}`}>
+                  {stat.value}
+                </span>
+              </button>
+            ))}
           </div>
 
-          {/* Pending Alerts Banner */}
-          {(pendingRequests.length > 0 || otherDeptPendingRequests.length > 0) && (
-            <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-amber-200 dark:bg-amber-900 text-amber-900 dark:text-amber-100 flex items-center justify-center shrink-0">
-                  <BadgeAlert className="w-5 h-5 text-amber-700 dark:text-amber-300" />
-                </div>
-                <div>
-                  <h4 className="text-xs font-bold text-amber-900 dark:text-amber-200">
-                    {pendingRequests.length > 0
-                      ? `${pendingRequests.length} አዳዲስ የአባልነት ማመልከቻዎች ውሳኔ ይጠብቃሉ`
-                      : `በሌሎች ክፍሎች ${otherDeptPendingRequests.length} የአባልነት ጥያቄዎች ውሳኔ ይጠብቃሉ`}
-                  </h4>
-                  <p className="text-[11px] text-amber-700 dark:text-amber-300">
-                    አባላቱ የክፍሉን መረጃዎች ማየትና በሥራዎች ላይ መሳተፍ የሚችሉት ሲያጸድቁላቸው ብቻ ነው።
-                  </p>
-                </div>
-              </div>
+          {/* Sub-view Switcher inside Branch 1 */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="inline-flex items-center p-0.5 rounded-lg bg-white dark:bg-[#111D30] border border-slate-200 dark:border-slate-800 gap-0.5">
               <button
-                onClick={() => setActiveTab('REQUESTS')}
-                className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold whitespace-nowrap shadow-xs"
+                type="button"
+                onClick={() => setProgramsSubView('OVERVIEW')}
+                className={`px-3 py-1.5 rounded-md text-xs font-bold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+                  programsSubView === 'OVERVIEW'
+                    ? 'bg-[#0C4A9E] text-white'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
               >
-                ጥያቄዎቹን ገምግም
+                አጠቃላይ ሰሌዳ
               </button>
-            </div>
-          )}
-
-          {/* Quick Schedule Preview & Agenda Assignment */}
-          <div className="bg-white dark:bg-[#111D30] rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-sm font-bold font-serif-ethiopic text-slate-900 dark:text-white flex items-center gap-2">
-                  <CalendarDays className="w-4 h-4 text-[#B88500]" />
-                  <span>የሚቀጥሉ ዕለታዊ መርሐ ግብሮችና ክፍለ-ጊዜዎች (Upcoming Programs)</span>
-                </h3>
-                <p className="text-xs text-slate-500">ከመርሐ ግብሩ በቀጥታ ክፍለ-ጊዜዎችን ለአባላት መድብ</p>
-              </div>
               <button
-                onClick={() => setActiveTab('SCHEDULE_AGENDA')}
-                className="text-xs font-bold text-[#0C4A9E] dark:text-[#7FAFFF] hover:underline flex items-center gap-1"
+                type="button"
+                onClick={() => setProgramsSubView('AGENDA')}
+                className={`px-3 py-1.5 rounded-md text-xs font-bold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+                  programsSubView === 'AGENDA'
+                    ? 'bg-[#0C4A9E] text-white'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
               >
-                <span>ሁሉንም አጀንዳዎች ተመልከት</span>
-                <ChevronRight className="w-3.5 h-3.5" />
+                የዕለት ሉሆች <span className="font-mono tabular-nums opacity-80">({relevantDailySheets.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setProgramsSubView('TASKS')}
+                className={`px-3 py-1.5 rounded-md text-xs font-bold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+                  programsSubView === 'TASKS'
+                    ? 'bg-[#0C4A9E] text-white'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                ምደባዎች እና ግምገማ <span className="font-mono tabular-nums opacity-80">({deptAssignments.length})</span>
               </button>
             </div>
 
-            <div className="space-y-4">
-              {relevantDailySheets.slice(0, 2).map((sheet) => (
-                <div
-                  key={sheet.id}
-                  className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 bg-slate-50/70 dark:bg-slate-900/40"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-slate-800">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="px-2 py-0.5 rounded-md bg-[#8B0000] text-white text-[10px] font-black">
-                          {sheet.dateAmharic}
-                        </span>
-                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                          {sheet.mainTopic}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-500 mt-0.5">
-                        የዕለቱ መሪ፦ {sheet.leader} | ሰዓት፦ {sheet.timeAmharic}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Agenda timetable slots */}
-                  <div className="mt-3 space-y-2">
-                    {sheet.slots.slice(0, 4).map((slot) => {
-                      const existingAssignment = deptAssignments.find(
-                        (a) => a.scheduleProgramId === sheet.id && a.agendaSlotId === slot.id
-                      );
-
-                      return (
-                        <div
-                          key={slot.id}
-                          className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-[10px] font-mono text-slate-600 dark:text-slate-300 shrink-0">
-                              {slot.timeRange}
-                            </span>
-                            <span className="font-bold text-slate-800 dark:text-slate-100">
-                              {slot.slotTitle}
-                            </span>
-                            {slot.inCharge && (
-                              <span className="text-[11px] text-slate-500">({slot.inCharge})</span>
-                            )}
-                          </div>
-
-                          <div className="flex items-center gap-2 shrink-0">
-                            {existingAssignment ? (
-                              <div className="flex items-center gap-1.5">
-                                <span className="px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/60 border border-blue-300 dark:border-blue-800 text-[10px] font-bold text-blue-900 dark:text-blue-200">
-                                  የተመደበ፦ {existingAssignment.responsibleLeadName}
-                                </span>
-                                <span
-                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                    SCHEDULE_TASK_STATUS_CONFIG[existingAssignment.status]?.bgClass
-                                  } ${SCHEDULE_TASK_STATUS_CONFIG[existingAssignment.status]?.colorClass}`}
-                                >
-                                  {SCHEDULE_TASK_STATUS_CONFIG[existingAssignment.status]?.amharicLabel}
-                                </span>
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() =>
-                                  handleOpenSlotAssignment(
-                                    sheet.id,
-                                    slot.id,
-                                    slot.slotTitle,
-                                    sheet.dateAmharic,
-                                    slot.timeRange,
-                                    sheet.division
-                                  )
-                                }
-                                className="px-2.5 py-1 rounded-md bg-[#0C4A9E] hover:bg-[#072958] text-white font-bold text-[11px] flex items-center gap-1 shadow-xs"
-                              >
-                                <PlusCircle className="w-3 h-3" />
-                                <span>መድብ (Assign)</span>
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 3. MEMBERSHIP REQUESTS TAB */}
-      {activeTab === 'REQUESTS' && (
-        <div className="bg-white dark:bg-[#111D30] rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
-            <div>
-              <h3 className="text-sm font-bold font-serif-ethiopic text-slate-900 dark:text-white flex items-center gap-2">
-                <Clock className="w-4 h-4 text-amber-500" />
-                <span>የአባልነት ማረጋገጫ ጥያቄዎች ({pendingRequests.length})</span>
-              </h3>
-              <p className="text-xs text-slate-500">
-                ወደ «{currentDeptInfo?.titleAmharic}» ለመቀላቀል የቀረቡ ማመልከቻዎችን ይገምግሙና ያጽድቁ።
-              </p>
-            </div>
+            {pendingRequests.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('MEMBERS');
+                  setMembersSubView('REQUESTS');
+                }}
+                className="px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs font-bold flex items-center gap-1.5 whitespace-nowrap cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-950/60"
+              >
+                <Clock className="w-3.5 h-3.5" />
+                <span>{pendingRequests.length} አዲስ የአባልነት ጥያቄ</span>
+              </button>
+            )}
           </div>
 
-          {pendingRequests.length === 0 ? (
-            <div className="text-center py-8 text-slate-400">
-              <UserCheck className="w-10 h-10 mx-auto text-emerald-500/60 mb-2" />
-              <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
-                በዚህ ክፍል ምንም አዲስ የአባልነት ጥያቄ የለም
-              </p>
-              <p className="text-xs text-slate-500">
-                ሁሉም የቀረቡ ማመልከቻዎች ተገምግመው ተጠናቀዋል።
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {pendingRequests.map((req) => (
-                <div
-                  key={req.id}
-                  className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 flex flex-col md:flex-row md:items-center justify-between gap-4"
-                >
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-2">
-                      <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                        {req.userName}
-                      </h4>
-                      <span className="px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 text-[10px] font-bold text-amber-900 dark:text-amber-200">
-                        {MEMBERSHIP_STATUS_CONFIG[req.status].amharicLabel}
-                      </span>
-                      {req.division && (
-                        <span className="px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950 text-[10px] font-bold text-blue-800 dark:text-blue-200">
-                          {DIVISIONS[req.division]?.titleAmharic || req.division}
-                        </span>
-                      )}
-                    </div>
-
-                    <p className="text-xs text-slate-500">
-                      ኢሜይል፦ <span className="font-mono text-slate-700 dark:text-slate-300">{req.userEmail}</span> | የቀረበበት ቀን፦ {req.createdAt}
-                    </p>
-
-                    {(req.sundaySchoolId || req.requestedPosition) && (
-                      <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                        {req.sundaySchoolId && (
-                          <span className="px-2 py-0.5 rounded-md bg-[#B88500]/15 border border-[#B88500]/30 text-[11px] font-mono font-bold text-[#8B0000] dark:text-[#FFD54F]">
-                            መታወቂያ ቁጥር፦ {req.sundaySchoolId}
-                          </span>
-                        )}
-                        {req.requestedPosition && (
-                          <span className="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-[11px] font-bold text-indigo-800 dark:text-indigo-200">
-                            የተጠየቀ ሚና፦ {EHUD_DEPARTMENT_POSITIONS[req.requestedPosition]?.rank}ኛ.{' '}
-                            {EHUD_DEPARTMENT_POSITIONS[req.requestedPosition]?.amharicTitle} (
-                            {EHUD_DEPARTMENT_POSITIONS[req.requestedPosition]?.englishTitle})
-                          </span>
-                        )}
-                      </div>
-                    )}
-
-                    {req.serviceSkills && req.serviceSkills.length > 0 && (
-                      <div className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300 pt-0.5">
-                        <span className="text-[11px] text-slate-400">የአገልግሎት ክህሎት፦</span>
-                        {req.serviceSkills.map((skill, idx) => (
-                          <span
-                            key={idx}
-                            className="px-1.5 py-0.2 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-medium"
-                          >
-                            {skill}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    {req.preferredResponsibilities && (
-                      <p className="text-[11px] text-slate-600 dark:text-slate-400 italic">
-                        የሚመርጡት ኃላፊነት፦ «{req.preferredResponsibilities}»
+          {/* 1A. OVERVIEW SUB-VIEW */}
+          {programsSubView === 'OVERVIEW' && (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+              {/* Left 7 Cols: Active Upcoming Sunday Timetable */}
+              <div className="lg:col-span-7 rounded-xl bg-white dark:bg-[#111D30] border border-slate-200 dark:border-slate-800 overflow-hidden">
+                <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h2 className="text-sm font-bold font-serif-ethiopic text-slate-900 dark:text-white">
+                      የቀጣይ እሁድ መርሐ ግብር ክፍለ-ጊዜዎች
+                    </h2>
+                    {activeOverviewSheet && (
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                        <span>{activeOverviewSheet.dateAmharic}</span>
+                        <span aria-hidden="true"> · </span>
+                        <span className="font-mono tabular-nums">{activeOverviewSheet.timeAmharic}</span>
+                        <span aria-hidden="true"> · </span>
+                        <span>መሪ፦ {activeOverviewSheet.leader}</span>
                       </p>
                     )}
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
+                    {relevantDailySheets.length > 1 && (
+                      <select
+                        value={activeOverviewSheet?.id || ''}
+                        onChange={(e) => setOverviewSheetId(e.target.value)}
+                        aria-label="የእሁድ መርሐ ግብር ምረጥ"
+                        className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 max-w-[190px]"
+                      >
+                        {relevantDailySheets.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.monthAmharic} {s.dayNumber} — {s.mainTopic.slice(0, 22)}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                     <button
-                      onClick={() => {
-                        setAppointingUser(null);
-                        setApprovingMembership(req);
-                        setAssignedCanApproveForApproval(Boolean(req.canApproveMembers));
-                        const ehudPos = getEhudPositionFromMembership(
-                          req.requestedPosition,
-                          req.role
-                        );
-                        setAssignedEhudPositionForApproval(
-                          ehudPos === 'DEPARTMENT_HEAD' && !isSuperAdmin ? 'MIKITIL_HEAD' : ehudPos
-                        );
-                        setAssignedRoleForApproval(
-                          req.departmentId === 'ehud_merha_gibir'
-                            ? mapEhudPositionToUserRole(
-                                ehudPos === 'DEPARTMENT_HEAD' && !isSuperAdmin
-                                  ? 'MIKITIL_HEAD'
-                                  : ehudPos
-                              )
-                            : req.requestedPosition === 'DEPARTMENT_HEAD' && isSuperAdmin
-                            ? 'ADMIN'
-                            : req.role || 'CONTRIBUTOR'
-                        );
-                      }}
-                      className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-colors"
+                      type="button"
+                      onClick={() => setProgramsSubView('AGENDA')}
+                      className="text-xs font-bold text-[#0C4A9E] dark:text-[#7FAFFF] hover:underline whitespace-nowrap flex items-center gap-0.5 cursor-pointer"
                     >
-                      <UserCheck className="w-3.5 h-3.5" />
-                      <span>አጽድቅ (Approve)</span>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        setRejectingMembership(req);
-                        setRejectionReasonText('');
-                      }}
-                      className="px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-rose-300 dark:border-rose-800 hover:bg-rose-50 text-rose-700 dark:text-rose-400 font-bold text-xs flex items-center gap-1.5 transition-colors"
-                    >
-                      <UserX className="w-3.5 h-3.5" />
-                      <span>አትቀበል (Reject)</span>
+                      <span>ሁሉም</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
 
-          {/* Cross-department pending requests visible to Super Admin */}
-          {isSuperAdmin && otherDeptPendingRequests.length > 0 && (
-            <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-2.5">
-              <h4 className="text-xs font-bold text-[#B88500] flex items-center gap-1.5">
-                <Building2 className="w-3.5 h-3.5" />
-                <span>በሌሎች ክፍሎች የቀረቡ ጥያቄዎች ({otherDeptPendingRequests.length})</span>
-              </h4>
-              <div className="space-y-2">
-                {otherDeptPendingRequests.map((req) => (
-                  <div
-                    key={req.id}
-                    className="p-3 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/40 dark:bg-amber-950/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                  >
-                    <div className="space-y-0.5">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs font-bold text-slate-900 dark:text-white">
-                          {req.userName}
-                        </span>
-                        <span className="px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950 text-[10px] font-bold text-blue-800 dark:text-blue-200">
-                          {req.departmentName}
-                        </span>
-                        {req.sundaySchoolId && (
-                          <span className="text-[10px] font-mono font-bold text-[#8B0000] dark:text-[#FFD54F]">
-                            ID: {req.sundaySchoolId}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-slate-500 font-mono">{req.userEmail}</p>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => setActiveDepartment(req.departmentId)}
-                        className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-200"
-                      >
-                        ወደ ክፍሉ ቀይር
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAppointingUser(null);
-                          setApprovingMembership(req);
-                          setAssignedCanApproveForApproval(Boolean(req.canApproveMembers));
-                          const ehudPos = getEhudPositionFromMembership(
-                            req.requestedPosition,
-                            req.role
-                          );
-                          setAssignedEhudPositionForApproval(ehudPos);
-                          setAssignedRoleForApproval(
-                            req.departmentId === 'ehud_merha_gibir'
-                              ? mapEhudPositionToUserRole(ehudPos)
-                              : req.requestedPosition === 'DEPARTMENT_HEAD'
-                              ? 'ADMIN'
-                              : req.role || 'MEMBER'
-                          );
-                        }}
-                        className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold"
-                      >
-                        አጽድቅ (Approve)
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Pre-Approve / Add Member Directly by Email */}
-          <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
-            <div>
-              <h4 className="text-xs font-bold text-[#8B0000] dark:text-[#FFD54F] flex items-center gap-1.5">
-                <UserPlus className="w-4 h-4" />
-                <span>በኢሜይል ቀድሞ አጽድቅ / አባል ጨምር (Pre-Approve Member by Email)</span>
-              </h4>
-              <p className="text-[11px] text-slate-500 mt-0.5">
-                አባሉ በዝርዝሩ ውስጥ ካልታየ (ለምሳሌ ገና ካልተመዘገበ ወይም ቀደም ሲል መመዝገብ ላይ ችግር አጋጥሞት ከነበረ) ኢሜይሉን እዚህ ያስገቡ። አባሉ አንዴ Login ሲያደርግ ወዲያውኑ ጸድቆ ወደ «{currentDeptInfo?.shortTitleAmharic}» ይገባል።
-              </p>
-            </div>
-
-            <form
-              onSubmit={handleCreateInviteSubmit}
-              className="p-4 rounded-xl border border-[#B88500]/30 bg-amber-50/40 dark:bg-slate-900/50 space-y-3"
-            >
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    የአባሉ ኢሜይል (Email) *
-                  </label>
-                  <div className="relative">
-                    <Mail className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-                    <input
-                      type="email"
-                      required
-                      value={inviteEmail}
-                      onChange={(e) => setInviteEmail(e.target.value)}
-                      placeholder="elsabet@example.com"
-                      className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-[#B88500]"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    ሙሉ ስም (Full Name) *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={inviteFullName}
-                    onChange={(e) => setInviteFullName(e.target.value)}
-                    placeholder="ኤልሳቤጥ ..."
-                    className="w-full px-3 py-1.5 text-xs rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-[#B88500]"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    የሰንበት ት/ቤት መታወቂያ (ID)
-                  </label>
-                  <input
-                    type="text"
-                    value={inviteSundaySchoolId}
-                    onChange={(e) => setInviteSundaySchoolId(e.target.value)}
-                    placeholder="ለምሳሌ፡ TS-2019-042"
-                    className="w-full px-3 py-1.5 text-xs rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-[#B88500]"
-                  />
-                </div>
-
-                {activeDepartment === 'ehud_merha_gibir' ? (
+                {activeOverviewSheet ? (
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      የክፍል ሚና (Department Role) *
-                    </label>
-                    <select
-                      value={inviteEhudPosition}
-                      onChange={(e) =>
-                        setInviteEhudPosition(e.target.value as EhudDepartmentPosition)
-                      }
-                      className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-[#B88500]"
-                    >
-                      {isSuperAdmin && (
-                        <option value="DEPARTMENT_HEAD">1ኛ. የክፍል ኃላፊ (Department Head)</option>
-                      )}
-                      <option value="MIKITIL_HEAD">2ኛ. ምክትል ኃላፊ (Mikitil Head)</option>
-                      <option value="MEMBER">3ኛ. አባል (Member)</option>
-                    </select>
+                    <div className="px-4 py-2 bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2 text-xs">
+                      <span className="font-bold text-slate-800 dark:text-slate-200 truncate">
+                        ርዕስ፦ {activeOverviewSheet.mainTopic}
+                      </span>
+                      <span className="text-[11px] text-slate-500 shrink-0">
+                        {DIVISIONS[activeOverviewSheet.division]?.titleAmharic}
+                      </span>
+                    </div>
+                    <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {activeOverviewSheet.slots.map((slot) => {
+                        const existingAssignment = deptAssignments.find(
+                          (a) =>
+                            a.scheduleProgramId === activeOverviewSheet.id &&
+                            a.agendaSlotId === slot.id
+                        );
+                        return (
+                          <div
+                            key={slot.id}
+                            className="px-4 py-2.5 flex items-center justify-between gap-3 hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors"
+                          >
+                            <div className="min-w-0 flex items-center gap-3">
+                              <span className="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400 w-20 shrink-0">
+                                {slot.timeRange}
+                              </span>
+                              <div className="min-w-0">
+                                <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">
+                                  {slot.slotTitle}
+                                </p>
+                                {slot.inCharge && (
+                                  <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                                    {slot.inCharge}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="shrink-0">
+                              {existingAssignment ? (
+                                <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
+                                  {existingAssignment.responsibleLeadName} ·{' '}
+                                  {SCHEDULE_TASK_STATUS_CONFIG[existingAssignment.status]?.amharicLabel}
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleOpenSlotAssignment(
+                                      activeOverviewSheet.id,
+                                      slot.id,
+                                      slot.slotTitle,
+                                      activeOverviewSheet.dateAmharic,
+                                      slot.timeRange,
+                                      activeOverviewSheet.division
+                                    )
+                                  }
+                                  className="px-2.5 py-1 rounded-lg bg-[#0C4A9E] hover:bg-[#072958] text-white font-bold text-[11px] whitespace-nowrap cursor-pointer"
+                                >
+                                  መድብ
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 ) : (
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      የክፍል ሚና (Role) *
-                    </label>
-                    <select
-                      value={inviteRole}
-                      onChange={(e) => setInviteRole(e.target.value as UserRole)}
-                      className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-[#B88500]"
-                    >
-                      <option value="MEMBER">አባል (Member)</option>
-                      <option value="CONTRIBUTOR">ደራሲ / አቅራቢ (Contributor)</option>
-                      <option value="REVIEWER">ገምጋሚ (Reviewer)</option>
-                      {isSuperAdmin && (
-                        <option value="ADMIN">የክፍሉ አስተዳዳሪ (Department Admin)</option>
-                      )}
-                    </select>
+                  <div className="p-6 text-center text-xs text-slate-500">
+                    ምንም የተመዘገበ የዕለት ሉህ የለም።
                   </div>
                 )}
-
-                <div className="flex items-end">
-                  <button
-                    type="submit"
-                    disabled={isSendingInvite}
-                    className="w-full py-1.5 px-3 rounded-lg bg-[#0C4A9E] hover:bg-[#072958] disabled:opacity-50 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs"
-                  >
-                    <UserCheck className="w-3.5 h-3.5" />
-                    <span>{isSendingInvite ? 'በማስቀመጥ ላይ...' : 'ቀድሞ አጽድቅ (Pre-Approve)'}</span>
-                  </button>
-                </div>
               </div>
 
-              {isSuperAdmin && (
-                <label className="flex items-center gap-2 p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/70 border border-emerald-300/70 dark:border-emerald-800/70 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={inviteCanApproveMembers}
-                    onChange={(e) => setInviteCanApproveMembers(e.target.checked)}
-                    className="rounded text-emerald-600 focus:ring-[#B88500]"
-                  />
-                  <span className="text-[11px] font-bold text-emerald-900 dark:text-emerald-200">
-                    የ«{currentDeptInfo?.shortTitleAmharic || activeDepartment}» አባላትን ብቻ ማረጋገጥና ማጽደቅ ትችላለች/ይችላል (Can Authorize Members of This Dept Only)
-                  </span>
-                </label>
-              )}
-
-              {inviteFeedback && (
-                <div
-                  className={`p-2.5 rounded-lg text-xs font-medium ${
-                    inviteFeedback.type === 'success'
-                      ? 'bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
-                      : 'bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200'
-                  }`}
-                >
-                  {inviteFeedback.text}
-                </div>
-              )}
-            </form>
-
-            {activeInvitesForDept.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                  በመጠባበቅ ላይ ያሉ ቀድመው የጸደቁ ግብዣዎች ({activeInvitesForDept.length}) — አባሉ ሲገባ ወዲያውኑ ይነቃል፦
-                </p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  {activeInvitesForDept.map((inv) => (
-                    <div
-                      key={inv.id}
-                      className="p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-900 bg-emerald-50/40 dark:bg-emerald-950/20 flex items-center justify-between gap-2"
-                    >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                            {inv.fullName}
-                          </span>
-                          {inv.canApproveMembers && (
-                            <span className="px-1.5 py-0.2 rounded-full bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 text-[9px] font-bold">
-                              አባል አጽዳቂ (Member Auth)
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[10px] font-mono text-slate-500 truncate">
-                          {inv.emailLower} •{' '}
-                          {inv.departmentId === 'ehud_merha_gibir'
-                            ? (() => {
-                                const pos = getEhudPositionFromMembership(inv.requestedPosition, inv.role);
-                                return `${EHUD_DEPARTMENT_POSITIONS[pos].rank}ኛ. ${EHUD_DEPARTMENT_POSITIONS[pos].amharicTitle} (${EHUD_DEPARTMENT_POSITIONS[pos].englishTitle})`;
-                              })()
-                            : inv.role}
-                          {inv.sundaySchoolId ? ` • ID: ${inv.sundaySchoolId}` : ''}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => cancelDepartmentInvite(inv.id)}
-                        className="px-2 py-1 rounded-lg text-[10px] font-bold text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-950 shrink-0"
-                      >
-                        ሰርዝ
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Rejected or Suspended Memberships that can be Restored */}
-          {rejectedOrSuspendedMemberships.length > 0 && (
-            <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-2.5">
-              <h4 className="text-xs font-bold text-rose-700 dark:text-rose-300 flex items-center gap-1.5">
-                <AlertCircle className="w-3.5 h-3.5" />
-                <span>ውድቅ የተደረጉ ወይም የታገዱ አባላት ({rejectedOrSuspendedMemberships.length})</span>
-              </h4>
-              <div className="space-y-2">
-                {rejectedOrSuspendedMemberships.map((mem) => (
-                  <div
-                    key={mem.id}
-                    className="p-3 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/40 dark:bg-rose-950/20 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
-                  >
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-slate-900 dark:text-white">
-                          {mem.userName}
-                        </span>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-200">
-                          {MEMBERSHIP_STATUS_CONFIG[mem.status].amharicLabel}
-                        </span>
-                      </div>
-                      <p className="text-[11px] font-mono text-slate-500">{mem.userEmail}</p>
-                      {mem.rejectionReason && (
-                        <p className="text-[11px] text-rose-700 dark:text-rose-300">
-                          ምክንያት፦ {mem.rejectionReason}
-                        </p>
-                      )}
-                    </div>
+              {/* Right 5 Cols: Submitted Work Queue & Pending Membership Requests */}
+              <div className="lg:col-span-5 space-y-4">
+                <div className="rounded-xl bg-white dark:bg-[#111D30] border border-slate-200 dark:border-slate-800 overflow-hidden">
+                  <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
+                    <h2 className="text-sm font-bold font-serif-ethiopic text-slate-900 dark:text-white">
+                      ግምገማ የሚጠብቁ ሥራዎች ({submittedTasks.length})
+                    </h2>
                     <button
                       type="button"
                       onClick={() => {
-                        setAppointingUser(null);
-                        setApprovingMembership(mem);
-                        setAssignedCanApproveForApproval(Boolean(mem.canApproveMembers));
-                        const ehudPos = getEhudPositionFromMembership(
-                          mem.requestedPosition,
-                          mem.role
-                        );
-                        setAssignedEhudPositionForApproval(
-                          ehudPos === 'DEPARTMENT_HEAD' && !isSuperAdmin ? 'MIKITIL_HEAD' : ehudPos
-                        );
-                        setAssignedRoleForApproval(
-                          mem.departmentId === 'ehud_merha_gibir'
-                            ? mapEhudPositionToUserRole(
-                                ehudPos === 'DEPARTMENT_HEAD' && !isSuperAdmin
-                                  ? 'MIKITIL_HEAD'
-                                  : ehudPos
-                              )
-                            : mem.role || 'MEMBER'
-                        );
+                        setStatusFilter('SUBMITTED');
+                        setProgramsSubView('TASKS');
                       }}
-                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold shrink-0"
+                      className="text-xs font-bold text-[#0C4A9E] dark:text-[#7FAFFF] hover:underline whitespace-nowrap cursor-pointer"
                     >
-                      እንደገና አጽድቅ (Restore)
+                      ሁሉም
                     </button>
+                  </div>
+
+                  {submittedTasks.length === 0 ? (
+                    <div className="px-4 py-4 flex items-center justify-between gap-2 text-xs text-slate-500">
+                      <span>
+                        {inProgressTasks.length} በሂደት ላይ · {completedTasks.length} የተጠናቀቁ
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStatusFilter('ALL');
+                          setProgramsSubView('TASKS');
+                        }}
+                        className="text-[#0C4A9E] dark:text-[#7FAFFF] font-bold hover:underline cursor-pointer"
+                      >
+                        ምደባዎችን እይ
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {submittedTasks.slice(0, 4).map((task) => (
+                        <div key={task.id} className="px-4 py-2.5 flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                              {task.title}
+                            </p>
+                            <p className="text-[11px] text-slate-500 truncate">
+                              {task.deliverableSubmission?.submittedByName || task.responsibleLeadName}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setReviewingAssignment(task);
+                              setReviewFeedbackText('');
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold whitespace-nowrap cursor-pointer"
+                          >
+                            ገምግም
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Quick Pending Requests Summary */}
+                <div className="rounded-xl bg-white dark:bg-[#111D30] border border-slate-200 dark:border-slate-800 overflow-hidden">
+                  <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
+                    <h2 className="text-sm font-bold font-serif-ethiopic text-slate-900 dark:text-white">
+                      የአባልነት ጥያቄዎች ({pendingRequests.length})
+                    </h2>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('MEMBERS');
+                        setMembersSubView('REQUESTS');
+                      }}
+                      className="text-xs font-bold text-[#0C4A9E] dark:text-[#7FAFFF] hover:underline whitespace-nowrap cursor-pointer"
+                    >
+                      አስተዳድር
+                    </button>
+                  </div>
+
+                  {pendingRequests.length === 0 && otherDeptPendingRequests.length === 0 ? (
+                    <div className="px-4 py-4 flex items-center justify-between gap-2 text-xs text-slate-500">
+                      <span>{approvedMembers.length} የጸደቁ አባላት</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTab('MEMBERS');
+                          setMembersSubView('DIRECTORY');
+                        }}
+                        className="text-[#0C4A9E] dark:text-[#7FAFFF] font-bold hover:underline cursor-pointer"
+                      >
+                        አባላትን እይ
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {pendingRequests.slice(0, 3).map((req) => (
+                        <div key={req.id} className="px-4 py-2.5 flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                              {req.userName}
+                            </p>
+                            <p className="text-[11px] text-slate-500 truncate">
+                              {req.sundaySchoolId || req.userEmail}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTab('MEMBERS');
+                              setMembersSubView('REQUESTS');
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold whitespace-nowrap cursor-pointer"
+                          >
+                            ገምግም
+                          </button>
+                        </div>
+                      ))}
+                      {pendingRequests.length === 0 && otherDeptPendingRequests.length > 0 && (
+                        <div className="px-4 py-3 flex items-center justify-between gap-2 text-xs">
+                          <span className="text-amber-700 dark:text-amber-300 font-semibold">
+                            በሌሎች ክፍሎች {otherDeptPendingRequests.length} ጥያቄዎች አሉ
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTab('MEMBERS');
+                              setMembersSubView('REQUESTS');
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-amber-600 text-white text-[11px] font-bold cursor-pointer"
+                          >
+                            እይ
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 1B. SCHEDULE AGENDA SUB-VIEW */}
+          {programsSubView === 'AGENDA' && (
+            <div className="bg-white dark:bg-[#111D30] rounded-xl p-4 border border-slate-200 dark:border-slate-800 space-y-4">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
+                <div>
+                  <h3 className="text-sm font-bold font-serif-ethiopic text-slate-900 dark:text-white flex items-center gap-2">
+                    <CalendarDays className="w-4 h-4 text-[#B88500]" />
+                    <span>የክፍሉ ዕለታዊ መርሐ ግብር አጀንዳዎች (<span className="font-mono tabular-nums">{filteredScheduleSheets.length}</span>)</span>
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    ያልተመደቡትን የእሁድ ክፍለ-ጊዜዎች በቀጥታ ለአባላት ይመድቡ።
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {(['ALL', 'youth', 'children', 'intermediates'] as const).map((div) => (
+                    <button
+                      key={div}
+                      type="button"
+                      onClick={() => setScheduleDivFilter(div)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition-colors cursor-pointer ${
+                        scheduleDivFilter === div
+                          ? 'bg-[#0C4A9E] text-white'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                      }`}
+                    >
+                      {div === 'ALL' ? 'ሁሉም እርከኖች' : DIVISIONS[div].titleAmharic}
+                    </button>
+                  ))}
+
+                  <select
+                    value={scheduleMonthFilter}
+                    onChange={(e) => setScheduleMonthFilter(e.target.value)}
+                    className="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200"
+                  >
+                    <option value="ALL">ሁሉም ወራት</option>
+                    {availableScheduleMonths.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {filteredScheduleSheets.map((sheet) => (
+                  <div
+                    key={sheet.id}
+                    className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden"
+                  >
+                    <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-bold text-[#8B0000] dark:text-[#FF8A80] font-mono tabular-nums">
+                            {sheet.dateAmharic}
+                          </span>
+                          <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">·</span>
+                          <h4 className="text-sm font-bold text-slate-900 dark:text-white font-serif-ethiopic truncate">
+                            {sheet.mainTopic}
+                          </h4>
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          መሪ፦ {sheet.leader} · አቅራቢ፦ {sheet.presenterOrTeacher} · <span className="font-mono tabular-nums">{sheet.timeAmharic}</span>
+                        </p>
+                      </div>
+
+                      <span className="text-[11px] font-semibold text-[#0C4A9E] dark:text-[#7FAFFF] shrink-0">
+                        {DIVISIONS[sheet.division]?.titleAmharic || sheet.division}
+                      </span>
+                    </div>
+
+                    <div className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-[#111D30]">
+                      {sheet.slots.map((slot) => {
+                        const existingAsgn = deptAssignments.find(
+                          (a) => a.scheduleProgramId === sheet.id && a.agendaSlotId === slot.id
+                        );
+
+                        return (
+                          <div
+                            key={slot.id}
+                            className="px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs hover:bg-slate-50/70 dark:hover:bg-slate-800/40"
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <span className="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400 w-20 shrink-0">
+                                {slot.timeRange}
+                              </span>
+                              <div className="min-w-0">
+                                <span className="font-semibold text-slate-900 dark:text-white">
+                                  {slot.slotTitle}
+                                </span>
+                                {slot.inCharge && (
+                                  <span className="text-[11px] text-slate-500 ml-2">· {slot.inCharge}</span>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                              {existingAsgn ? (
+                                <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
+                                  {existingAsgn.responsibleLeadName} ·{' '}
+                                  {SCHEDULE_TASK_STATUS_CONFIG[existingAsgn.status]?.amharicLabel}
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleOpenSlotAssignment(
+                                      sheet.id,
+                                      slot.id,
+                                      slot.slotTitle,
+                                      sheet.dateAmharic,
+                                      slot.timeRange,
+                                      sheet.division
+                                    )
+                                  }
+                                  className="px-2.5 py-1 rounded-lg bg-[#0C4A9E] hover:bg-[#072958] text-white font-bold text-[11px] flex items-center gap-1 whitespace-nowrap cursor-pointer"
+                                >
+                                  <PlusCircle className="w-3 h-3" />
+                                  <span>መድብ</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Super Admin Registered Accounts Directory (catches Google Sign-In or users without dept membership doc) */}
-          {isSuperAdmin && (
-            <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          {/* 1C. UNIFIED ASSIGNMENTS & SUBMISSIONS REVIEW SUB-VIEW */}
+          {programsSubView === 'TASKS' && (
+            <div className="bg-white dark:bg-[#111D30] rounded-xl p-4 border border-slate-200 dark:border-slate-800 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
                 <div>
-                  <h4 className="text-xs font-bold text-[#0C4A9E] dark:text-[#7FAFFF] flex items-center gap-1.5">
-                    <Users className="w-3.5 h-3.5" />
-                    <span>የተመዘገቡ አካውንቶች ዝርዝር (All Registered Users: {registeredUsers.length})</span>
-                  </h4>
-                  <p className="text-[11px] text-slate-500">
-                    በGoogle ወይም በኢሜይል የተመዘገቡ ግን ገና በዚህ ክፍል ያልጸደቁ ተጠቃሚዎችን በቀጥታ መፈለግና ማጽደቅ ይችላሉ።
+                  <h3 className="text-sm font-bold font-serif-ethiopic text-slate-900 dark:text-white flex items-center gap-2">
+                    <CalendarCheck2 className="w-4 h-4 text-[#0C4A9E]" />
+                    <span>የሥራ ምደባዎች እና ግምገማ (<span className="font-mono tabular-nums">{deptAssignments.length}</span>)</span>
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    የተመደበ → የተቀበለ → በዝግጅት ላይ → የቀረበ → የተጠናቀቀ
                   </p>
                 </div>
-                <div className="relative">
-                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
-                  <input
-                    type="text"
-                    value={userDirectoryQuery}
-                    onChange={(e) => setUserDirectoryQuery(e.target.value)}
-                    placeholder="በስም፣ በኢሜይል ወይም በID ፈልግ..."
-                    className="pl-8 pr-3 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
-                  />
+
+                <div className="flex items-center gap-1 overflow-x-auto pb-0.5 scrollbar-none">
+                  {['ALL', 'SUBMITTED', 'ASSIGNED', 'ACCEPTED', 'IN_PROGRESS', 'COMPLETED', 'REVISION_REQUESTED'].map(
+                    (st) => (
+                      <button
+                        key={st}
+                        type="button"
+                        onClick={() => setStatusFilter(st)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+                          statusFilter === st
+                            ? 'bg-[#0C4A9E] text-white'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                        }`}
+                      >
+                        {st === 'ALL'
+                          ? 'ሁሉም'
+                          : st === 'SUBMITTED'
+                          ? `ግምገማ (${submittedTasks.length})`
+                          : SCHEDULE_TASK_STATUS_CONFIG[st as ScheduleTaskStatus]?.amharicLabel}
+                      </button>
+                    )
+                  )}
                 </div>
               </div>
 
-              {registeredUsersError && (
-                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300">
-                  የተጠቃሚዎችን ዝርዝር መጫን አልተቻለም፦ {registeredUsersError}
+              {deptAssignments.filter((a) => statusFilter === 'ALL' || a.status === statusFilter).length === 0 ? (
+                <div className="text-center py-8 text-slate-400">
+                  <CheckCircle2 className="w-9 h-9 mx-auto text-emerald-500/60 mb-1.5" />
+                  <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    በዚህ ማጣሪያ የተገኘ የሥራ ምደባ የለም
+                  </p>
                 </div>
-              )}
-
-              {unassignedRegisteredUsers.length === 0 ? (
-                <p className="text-[11px] text-slate-400 italic py-2">
-                  በ«{currentDeptInfo?.shortTitleAmharic}» ውስጥ ገና ያልጸደቀ ተመዝጋቢ አልተገኘም። አባሉ ከላይ ባለው «በኢሜይል ቀድሞ አጽድቅ» ቅጽ መጨመር ይችላል።
-                </p>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 max-h-72 overflow-y-auto pr-1">
-                  {unassignedRegisteredUsers.map((u) => (
-                    <div
-                      key={u.id}
-                      className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 flex items-center justify-between gap-2"
-                    >
-                      <div className="min-w-0">
-                        <div className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                          {u.fullName}
-                        </div>
-                        <div className="text-[10px] font-mono text-slate-500 truncate">{u.email}</div>
-                        <div className="flex flex-wrap gap-1.5 mt-1">
-                          {u.sundaySchoolId && (
-                            <span className="text-[10px] font-mono font-bold text-[#8B0000] dark:text-[#FFD54F]">
-                              ID: {u.sundaySchoolId}
-                            </span>
+                <div className="rounded-xl border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800 overflow-hidden">
+                  {deptAssignments
+                    .filter((a) => statusFilter === 'ALL' || a.status === statusFilter)
+                    .map((asgn) => {
+                      const statusCfg = SCHEDULE_TASK_STATUS_CONFIG[asgn.status];
+
+                      return (
+                        <div
+                          key={asgn.id}
+                          className={`p-3.5 space-y-2 ${
+                            asgn.status === 'SUBMITTED'
+                              ? 'bg-indigo-50/25 dark:bg-indigo-950/15'
+                              : 'bg-slate-50/30 dark:bg-slate-900/20'
+                          }`}
+                        >
+                          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                            <div className="space-y-1 flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${statusCfg?.bgClass} ${statusCfg?.colorClass} ${statusCfg?.borderClass}`}
+                                >
+                                  {statusCfg?.amharicLabel}
+                                </span>
+                                <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                                  {asgn.title}
+                                </h4>
+                              </div>
+
+                              {asgn.instructions && (
+                                <p className="text-xs text-slate-600 dark:text-slate-300">
+                                  {asgn.instructions}
+                                </p>
+                              )}
+
+                              <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-slate-500">
+                                <span>{asgn.agendaSlotTitle}</span>
+                                <span>
+                                  ·{' '}
+                                  <span className="font-mono tabular-nums">
+                                    {asgn.programDate} ({asgn.programTime})
+                                  </span>
+                                </span>
+                                <span>
+                                  · ኃላፊ፦{' '}
+                                  <strong className="text-[#0C4A9E] dark:text-[#7FAFFF]">
+                                    {asgn.responsibleLeadName}
+                                  </strong>
+                                </span>
+                                {asgn.groupName && <span>· {asgn.groupName}</span>}
+                                {asgn.requiredDeliverable && (
+                                  <span className="text-[#8B0000] dark:text-[#FFB4AB] font-semibold">
+                                    · የሚጠበቅ፦ {asgn.requiredDeliverable}
+                                  </span>
+                                )}
+                              </div>
+
+                              {asgn.adminFeedback && (
+                                <p className="text-[11px] text-amber-800 dark:text-amber-200 pt-0.5">
+                                  <span className="font-bold">አስተያየት፦</span> {asgn.adminFeedback}
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2 shrink-0">
+                              {asgn.status === 'SUBMITTED' && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      setIsSubmitting(true);
+                                      try {
+                                        await reviewAssignment(
+                                          asgn.id,
+                                          'COMPLETED',
+                                          'በክፍሉ ኃላፊ ተረጋግጦ ጸድቋል።'
+                                        );
+                                      } finally {
+                                        setIsSubmitting(false);
+                                      }
+                                    }}
+                                    disabled={isSubmitting}
+                                    className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1 whitespace-nowrap cursor-pointer"
+                                  >
+                                    <Check className="w-3.5 h-3.5" />
+                                    <span>አጽድቅ</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setReviewingAssignment(asgn);
+                                      setReviewFeedbackText('');
+                                    }}
+                                    className="px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center gap-1 whitespace-nowrap cursor-pointer"
+                                  >
+                                    <FileCheck className="w-3.5 h-3.5" />
+                                    <span>ገምግም</span>
+                                  </button>
+                                </>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => deleteScheduleAssignment(asgn.id)}
+                                className="px-2.5 py-1.5 rounded-lg text-slate-400 hover:text-rose-600 text-xs font-semibold cursor-pointer"
+                              >
+                                ሰርዝ
+                              </button>
+                            </div>
+                          </div>
+
+                          {asgn.status === 'SUBMITTED' && asgn.deliverableSubmission?.content && (
+                            <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300 space-y-1">
+                              <p>{asgn.deliverableSubmission.content}</p>
+                              {asgn.deliverableSubmission.fileName && (
+                                <div className="flex items-center gap-1.5 text-[11px] text-[#0C4A9E] dark:text-[#7FAFFF]">
+                                  <FileText className="w-3.5 h-3.5" />
+                                  <span>{asgn.deliverableSubmission.fileName}</span>
+                                </div>
+                              )}
+                            </div>
                           )}
-                          {u.requestedPosition && (
-                            <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300">
-                              {EHUD_DEPARTMENT_POSITIONS[u.requestedPosition]?.amharicTitle}
-                            </span>
-                          )}
                         </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setApprovingMembership(null);
-                          setAppointingUser(u);
-                          setAssignedCanApproveForApproval(false);
-                          const ehudPos = getEhudPositionFromMembership(
-                            u.requestedPosition,
-                            u.role
-                          );
-                          setAssignedEhudPositionForApproval(ehudPos);
-                          setAssignedRoleForApproval(
-                            activeDepartment === 'ehud_merha_gibir'
-                              ? mapEhudPositionToUserRole(ehudPos)
-                              : u.requestedPosition === 'DEPARTMENT_HEAD'
-                              ? 'ADMIN'
-                              : 'MEMBER'
-                          );
-                        }}
-                        className="px-2.5 py-1.5 rounded-lg bg-[#0C4A9E] hover:bg-[#072958] text-white text-[11px] font-bold shrink-0"
-                      >
-                        ወደ ክፍሉ አጽድቅ
-                      </button>
-                    </div>
-                  ))}
+                      );
+                    })}
                 </div>
               )}
             </div>
@@ -1215,502 +1174,750 @@ export const DepartmentAdminWorkspace: React.FC<{
         </div>
       )}
 
-      {/* 4. MEMBERS & WORKLOAD TAB */}
+      {/* =========================================================================
+          BRANCH 2: MEMBERS, APPROVALS & INVITES
+         ========================================================================= */}
       {activeTab === 'MEMBERS' && (
-        <div className="bg-white dark:bg-[#111D30] rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
-            <div>
-              <h3 className="text-sm font-bold font-serif-ethiopic text-slate-900 dark:text-white flex items-center gap-2">
-                <Users className="w-4 h-4 text-[#0C4A9E]" />
-                <span>የክፍሉ አባላትና የሥራ ጫና (Members & Workload)</span>
-              </h3>
-              <p className="text-xs text-slate-500">
-                የተመደቡ አባላት ብዛት፦ {approvedMembers.length} | ሥራዎችን ከመመደብዎ በፊት የአባላትን የስራ ጫና ይመልከቱ
-              </p>
-            </div>
-
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="በስም ወይም በክህሎት ፈልግ..."
-                className="pl-8 pr-3 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {approvedMembers
-              .filter(
-                (m) =>
-                  m.userName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                  (m.serviceSkills || []).some((s) => s.toLowerCase().includes(searchQuery.toLowerCase()))
-              )
-              .map((member) => {
-                const workload = checkMemberWorkload(member.userId);
-                const roleConfig = USER_ROLES[member.role];
-
-                return (
-                  <div
-                    key={member.id}
-                    className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/30 flex flex-col justify-between gap-3"
-                  >
-                    <div>
-                      <div className="flex items-start justify-between gap-2 mb-1.5">
-                        <div>
-                          <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                            {member.userName}
-                          </h4>
-                          <span className="text-[10px] text-slate-500 font-mono">
-                            {member.userEmail}
-                          </span>
-                        </div>
-                        <span
-                          className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 dark:bg-blue-950 text-blue-900 dark:text-blue-100"
-                        >
-                          {activeDepartment === 'ehud_merha_gibir'
-                            ? (() => {
-                                const pos = getEhudPositionFromMembership(
-                                  member.requestedPosition,
-                                  member.role
-                                );
-                                return `${EHUD_DEPARTMENT_POSITIONS[pos].rank}ኛ. ${EHUD_DEPARTMENT_POSITIONS[pos].amharicTitle}`;
-                              })()
-                            : roleConfig?.amharicTitle || member.role}
-                        </span>
-                      </div>
-
-                      {member.division && (
-                        <p className="text-[11px] text-slate-600 dark:text-slate-400 mb-1">
-                          የዕድሜ እርከን፦ <strong className="text-slate-800 dark:text-slate-200">{DIVISIONS[member.division]?.titleAmharic || member.division}</strong>
-                        </p>
-                      )}
-                      {member.sundaySchoolId && (
-                        <p className="text-[11px] text-slate-600 dark:text-slate-400 mb-1">
-                          መታወቂያ ቁጥር፦ <strong className="font-mono text-[#0C4A9E] dark:text-[#7FAFFF]">{member.sundaySchoolId}</strong>
-                        </p>
-                      )}
-                      {member.requestedPosition && (
-                        <p className="text-[11px] text-slate-600 dark:text-slate-400 mb-2">
-                          የክፍል ደረጃ፦ <strong className="text-[#8B0000] dark:text-[#FFD54F]">{EHUD_DEPARTMENT_POSITIONS[member.requestedPosition]?.rank}ኛ. {EHUD_DEPARTMENT_POSITIONS[member.requestedPosition]?.amharicTitle}</strong>
-                        </p>
-                      )}
-
-                      {(member.canApproveMembers || member.role === 'ADMIN') && (
-                        <div className="mb-2 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-[10px] font-bold text-emerald-800 dark:text-emerald-200 flex items-center gap-1.5">
-                          <Shield className="w-3 h-3 text-emerald-600 shrink-0" />
-                          <span>የዚህ ክፍል አባላትን የማረጋገጥ ፈቃድ (Member Authorizer)</span>
-                        </div>
-                      )}
-
-                      {/* Workload Badge */}
-                      {!memberAuthOnly && (
-                        <div className="p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs mb-2">
-                          <span className="text-slate-500">የአሁን የሥራ ጫና፦</span>
-                          <div className="flex items-center gap-1.5">
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                                workload.activeTaskCount === 0
-                                  ? 'bg-slate-100 text-slate-600'
-                                  : workload.activeTaskCount <= 2
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : workload.activeTaskCount === 3
-                                  ? 'bg-amber-100 text-amber-800'
-                                  : 'bg-rose-100 text-rose-800'
-                              }`}
-                            >
-                              {workload.activeTaskCount} ንቁ ሥራዎች
-                            </span>
-                          </div>
-                        </div>
-                      )}
-
-                      {member.serviceSkills && member.serviceSkills.length > 0 && (
-                        <div className="flex flex-wrap gap-1">
-                          {member.serviceSkills.map((s, idx) => (
-                            <span
-                              key={idx}
-                              className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-600 dark:text-slate-300"
-                            >
-                              {s}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-[10px] text-slate-400">የጸደቀበት፦ {member.approvedAt || member.createdAt}</span>
-
-                      <div className="flex flex-wrap items-center gap-2.5">
-                        {isSuperAdmin && member.role !== 'ADMIN' && (
-                          <button
-                            type="button"
-                            disabled={togglingAuthId === member.id}
-                            onClick={async () => {
-                              setTogglingAuthId(member.id);
-                              try {
-                                await toggleMemberApprovalAuthority(
-                                  member.id,
-                                  !member.canApproveMembers
-                                );
-                              } finally {
-                                setTogglingAuthId(null);
-                              }
-                            }}
-                            className={`text-[11px] font-bold hover:underline disabled:opacity-50 ${
-                              member.canApproveMembers
-                                ? 'text-rose-700 dark:text-rose-400'
-                                : 'text-emerald-700 dark:text-emerald-400'
-                            }`}
-                          >
-                            {togglingAuthId === member.id
-                              ? 'በማስቀመጥ ላይ...'
-                              : member.canApproveMembers
-                              ? 'አባል የማጽደቅ ፈቃድ አንሳ'
-                              : 'አባል የማጽደቅ ፈቃድ ስጥ (Authorize)'}
-                          </button>
-                        )}
-                        {isSuperAdmin && (
-                          <button
-                            onClick={() => {
-                              setAppointingUser(null);
-                              setApprovingMembership(member);
-                              setAssignedCanApproveForApproval(Boolean(member.canApproveMembers));
-                              const ehudPos = getEhudPositionFromMembership(
-                                member.requestedPosition,
-                                member.role
-                              );
-                              setAssignedEhudPositionForApproval(ehudPos);
-                              setAssignedRoleForApproval(
-                                member.departmentId === 'ehud_merha_gibir'
-                                  ? mapEhudPositionToUserRole(ehudPos)
-                                  : member.role || 'MEMBER'
-                              );
-                            }}
-                            className="text-[11px] text-[#0C4A9E] dark:text-[#7FAFFF] hover:underline font-bold"
-                          >
-                            ሚና ቀይር (Role)
-                          </button>
-                        )}
-                        {/* Super admin, dept admin, or member-authorizer can suspend non-admins */}
-                        {member.role !== 'ADMIN' && (
-                          <button
-                            onClick={() => {
-                              setSuspendingMembership(member);
-                              setSuspensionReasonText('');
-                            }}
-                            className="text-[11px] text-amber-700 dark:text-amber-400 hover:underline font-bold"
-                          >
-                            አግድ (Suspend)
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-          </div>
-        </div>
-      )}
-
-      {/* 5. SCHEDULE AGENDA & DIRECT ASSIGNMENT TAB */}
-      {activeTab === 'SCHEDULE_AGENDA' && (
-        <div className="bg-white dark:bg-[#111D30] rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
-            <div>
-              <h3 className="text-sm font-bold font-serif-ethiopic text-slate-900 dark:text-white flex items-center gap-2">
-                <CalendarDays className="w-4 h-4 text-[#B88500]" />
-                <span>የክፍሉ ዓመታዊና ዕለታዊ መርሐ ግብሮች አጀንዳዎች</span>
-              </h3>
-              <p className="text-xs text-slate-500">
-                የዕለቱ ክፍለ-ጊዜዎችን ይመልከቱ፤ ያልተመደቡትን ክፍለ-ጊዜዎች በቀጥታ ለአባላት ይመድቡ።
-              </p>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            {relevantDailySheets.map((sheet) => (
-              <div
-                key={sheet.id}
-                className="rounded-2xl border border-slate-200 dark:border-slate-800 p-4 bg-slate-50/50 dark:bg-slate-900/30"
+        <div className="space-y-4">
+          {/* Sub-view Switcher inside Branch 2 */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="inline-flex items-center p-0.5 rounded-lg bg-white dark:bg-[#111D30] border border-slate-200 dark:border-slate-800 gap-0.5">
+              <button
+                type="button"
+                onClick={() => setMembersSubView('DIRECTORY')}
+                className={`px-3 py-1.5 rounded-md text-xs font-bold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+                  membersSubView === 'DIRECTORY'
+                    ? 'bg-[#0C4A9E] text-white'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
               >
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-slate-800">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="px-2.5 py-0.5 rounded-md bg-[#8B0000] text-white text-xs font-black">
-                        {sheet.dateAmharic}
-                      </span>
-                      <h4 className="text-sm font-bold text-slate-900 dark:text-white font-serif-ethiopic">
-                        {sheet.mainTopic}
-                      </h4>
-                    </div>
-                    <p className="text-xs text-slate-500 mt-1">
-                      መሪ፦ <strong className="text-slate-700 dark:text-slate-300">{sheet.leader}</strong> | አቅራቢ/መምህር፦ {sheet.presenterOrTeacher} | ሰዓት፦ {sheet.timeAmharic}
-                    </p>
-                  </div>
+                የጸደቁ አባላት <span className="font-mono tabular-nums opacity-80">({approvedMembers.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMembersSubView('REQUESTS')}
+                className={`px-3 py-1.5 rounded-md text-xs font-bold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+                  membersSubView === 'REQUESTS'
+                    ? 'bg-[#0C4A9E] text-white'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                ጥያቄዎች እና ግብዣ{' '}
+                <span className="font-mono tabular-nums opacity-80">
+                  ({pendingRequests.length + otherDeptPendingRequests.length})
+                </span>
+              </button>
+            </div>
 
-                  <span className="px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950 text-[10px] font-bold text-blue-800 dark:text-blue-200 self-start sm:self-auto">
-                    {DIVISIONS[sheet.division]?.titleAmharic || sheet.division}
-                  </span>
+            {membersSubView === 'DIRECTORY' && pendingRequests.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setMembersSubView('REQUESTS')}
+                className="px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs font-bold flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+              >
+                <Clock className="w-3.5 h-3.5" />
+                <span>{pendingRequests.length} ጥያቄዎች ውሳኔ ይጠብቃሉ</span>
+              </button>
+            )}
+          </div>
+
+          {/* 2A. MEMBERS DIRECTORY SUB-VIEW */}
+          {membersSubView === 'DIRECTORY' && (
+            <div className="bg-white dark:bg-[#111D30] rounded-xl p-4 border border-slate-200 dark:border-slate-800 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
+                <div>
+                  <h3 className="text-sm font-bold font-serif-ethiopic text-slate-900 dark:text-white flex items-center gap-2">
+                    <Users className="w-4 h-4 text-[#0C4A9E]" />
+                    <span>የክፍሉ አባላትና የሥራ ጫና (<span className="font-mono tabular-nums">{approvedMembers.length}</span>)</span>
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    ሥራዎችን ከመመደብዎ በፊት የአባላትን ንቁ የሥራ ጫና ይመልከቱ
+                  </p>
                 </div>
 
-                <div className="mt-3 space-y-2">
-                  {sheet.slots.map((slot) => {
-                    const existingAsgn = deptAssignments.find(
-                      (a) => a.scheduleProgramId === sheet.id && a.agendaSlotId === slot.id
-                    );
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="በስም ወይም በክህሎት ፈልግ..."
+                    className="pl-8 pr-3 py-1.5 text-xs rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {approvedMembers
+                  .filter(
+                    (m) =>
+                      m.userName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                      (m.serviceSkills || []).some((s) => s.toLowerCase().includes(searchQuery.toLowerCase()))
+                  )
+                  .map((member) => {
+                    const workload = checkMemberWorkload(member.userId);
+                    const roleConfig = USER_ROLES[member.role];
+                    const roleLabel =
+                      activeDepartment === 'ehud_merha_gibir'
+                        ? (() => {
+                            const pos = getEhudPositionFromMembership(member.requestedPosition, member.role);
+                            return `${EHUD_DEPARTMENT_POSITIONS[pos].rank}ኛ. ${EHUD_DEPARTMENT_POSITIONS[pos].amharicTitle}`;
+                          })()
+                        : roleConfig?.amharicTitle || member.role;
 
                     return (
                       <div
-                        key={slot.id}
-                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs shadow-2xs"
+                        key={member.id}
+                        className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/30 flex flex-col justify-between gap-2.5"
                       >
-                        <div className="flex items-start gap-2.5">
-                          <span className="px-2 py-1 rounded bg-slate-100 dark:bg-slate-700 text-[11px] font-mono text-slate-600 dark:text-slate-300 font-bold shrink-0">
-                            {slot.timeRange}
-                          </span>
-                          <div>
-                            <span className="font-bold text-slate-900 dark:text-white text-xs">
-                              {slot.slotTitle}
-                            </span>
-                            {slot.inCharge && (
-                              <p className="text-[11px] text-slate-500">ተረኛ/መሪ፦ {slot.inCharge}</p>
-                            )}
-                            {slot.notes && (
-                              <p className="text-[10px] text-slate-400 italic">{slot.notes}</p>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
-                          {existingAsgn ? (
-                            <div className="flex items-center gap-2">
-                              <span className="text-[11px] text-slate-600 dark:text-slate-300 font-medium">
-                                ተመድቧል፦ <strong className="text-[#0C4A9E] dark:text-[#7FAFFF]">{existingAsgn.responsibleLeadName}</strong>
-                              </span>
-                              <span
-                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                  SCHEDULE_TASK_STATUS_CONFIG[existingAsgn.status]?.bgClass
-                                } ${SCHEDULE_TASK_STATUS_CONFIG[existingAsgn.status]?.colorClass}`}
-                              >
-                                {SCHEDULE_TASK_STATUS_CONFIG[existingAsgn.status]?.amharicLabel}
+                        <div className="space-y-1.5">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                                {member.userName}
+                              </h4>
+                              <span className="text-[11px] text-slate-500 font-mono block truncate">
+                                {member.userEmail}
                               </span>
                             </div>
-                          ) : (
-                            <button
-                              onClick={() =>
-                                handleOpenSlotAssignment(
-                                  sheet.id,
-                                  slot.id,
-                                  slot.slotTitle,
-                                  sheet.dateAmharic,
-                                  slot.timeRange,
-                                  sheet.division
-                                )
-                              }
-                              className="px-3 py-1.5 rounded-lg bg-[#0C4A9E] hover:bg-[#072958] text-white font-bold text-xs flex items-center gap-1 shadow-xs"
-                            >
-                              <PlusCircle className="w-3.5 h-3.5" />
-                              <span>ቀጥታ መድብ (Assign)</span>
-                            </button>
+                            {!memberAuthOnly && (
+                              <span
+                                className={`text-[11px] font-mono tabular-nums font-bold shrink-0 ${
+                                  workload.activeTaskCount === 0
+                                    ? 'text-slate-500'
+                                    : workload.activeTaskCount <= 2
+                                    ? 'text-emerald-700 dark:text-emerald-400'
+                                    : workload.activeTaskCount === 3
+                                    ? 'text-amber-700 dark:text-amber-400'
+                                    : 'text-rose-700 dark:text-rose-400'
+                                }`}
+                              >
+                                {workload.activeTaskCount} ንቁ
+                              </span>
+                            )}
+                          </div>
+
+                          <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                            <span className="font-semibold text-[#0C4A9E] dark:text-[#7FAFFF]">{roleLabel}</span>
+                            {member.division && <span> · {DIVISIONS[member.division]?.titleAmharic || member.division}</span>}
+                            {member.sundaySchoolId && <span className="font-mono"> · {member.sundaySchoolId}</span>}
+                          </p>
+
+                          {(member.canApproveMembers || member.role === 'ADMIN') && (
+                            <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
+                              <Shield className="w-3 h-3 shrink-0" />
+                              <span>አባላትን ማጽደቅ ይችላል</span>
+                            </p>
                           )}
+
+                          {member.serviceSkills && member.serviceSkills.length > 0 && (
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                              ክህሎት፦ {member.serviceSkills.join(' · ')}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="pt-2 border-t border-slate-200/70 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                          <span className="text-slate-400 font-mono tabular-nums">{member.approvedAt || member.createdAt}</span>
+
+                          <div className="flex flex-wrap items-center gap-2.5">
+                            {isSuperAdmin && member.role !== 'ADMIN' && (
+                              <button
+                                type="button"
+                                disabled={togglingAuthId === member.id}
+                                onClick={async () => {
+                                  setTogglingAuthId(member.id);
+                                  try {
+                                    await toggleMemberApprovalAuthority(
+                                      member.id,
+                                      !member.canApproveMembers
+                                    );
+                                  } finally {
+                                    setTogglingAuthId(null);
+                                  }
+                                }}
+                                className={`font-bold hover:underline disabled:opacity-50 cursor-pointer ${
+                                  member.canApproveMembers
+                                    ? 'text-rose-700 dark:text-rose-400'
+                                    : 'text-emerald-700 dark:text-emerald-400'
+                                }`}
+                              >
+                                {togglingAuthId === member.id
+                                  ? 'በማስቀመጥ ላይ...'
+                                  : member.canApproveMembers
+                                  ? 'ፈቃድ አንሳ'
+                                  : 'አባል አጽዳቂ አድርግ'}
+                              </button>
+                            )}
+                            {isSuperAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAppointingUser(null);
+                                  setApprovingMembership(member);
+                                  setAssignedCanApproveForApproval(Boolean(member.canApproveMembers));
+                                  const ehudPos = getEhudPositionFromMembership(
+                                    member.requestedPosition,
+                                    member.role
+                                  );
+                                  setAssignedEhudPositionForApproval(ehudPos);
+                                  setAssignedRoleForApproval(
+                                    member.departmentId === 'ehud_merha_gibir'
+                                      ? mapEhudPositionToUserRole(ehudPos)
+                                      : member.role || 'MEMBER'
+                                  );
+                                }}
+                                className="text-[#0C4A9E] dark:text-[#7FAFFF] hover:underline font-bold cursor-pointer"
+                              >
+                                ሚና ቀይር
+                              </button>
+                            )}
+                            {member.role !== 'ADMIN' && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSuspendingMembership(member);
+                                  setSuspensionReasonText('');
+                                }}
+                                className="text-amber-700 dark:text-amber-400 hover:underline font-bold cursor-pointer"
+                              >
+                                አግድ
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
                   })}
+              </div>
+            </div>
+          )}
+
+          {/* 2B. REQUESTS, PRE-APPROVALS & RESTORE SUB-VIEW */}
+          {membersSubView === 'REQUESTS' && (
+            <div className="bg-white dark:bg-[#111D30] rounded-xl p-4 border border-slate-200 dark:border-slate-800 space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+                <div>
+                  <h3 className="text-sm font-bold font-serif-ethiopic text-slate-900 dark:text-white flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-amber-500" />
+                    <span>የአባልነት ማረጋገጫ ጥያቄዎች (<span className="font-mono tabular-nums">{pendingRequests.length}</span>)</span>
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    ወደ «{currentDeptInfo?.titleAmharic}» ለመቀላቀል የቀረቡ ማመልከቻዎችን ይገምግሙና ያጽድቁ።
+                  </p>
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
 
-      {/* 6. ASSIGNMENTS TAB */}
-      {activeTab === 'ASSIGNMENTS' && (
-        <div className="bg-white dark:bg-[#111D30] rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
-            <div>
-              <h3 className="text-sm font-bold font-serif-ethiopic text-slate-900 dark:text-white flex items-center gap-2">
-                <CalendarCheck2 className="w-4 h-4 text-blue-600" />
-                <span>የክፍሉ የሥራ ምደባዎች ዝርዝር ({deptAssignments.length})</span>
-              </h3>
-              <p className="text-xs text-slate-500">
-                የተሰጡ ተግባራት ሁኔታ፦ የተመደበ → የተቀበለ → በዝግጅት ላይ → የቀረበ → የተጠናቀቀ
-              </p>
-            </div>
-
-            {/* Filter buttons */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-              {['ALL', 'ASSIGNED', 'ACCEPTED', 'IN_PROGRESS', 'SUBMITTED', 'COMPLETED', 'REVISION_REQUESTED'].map(
-                (st) => (
-                  <button
-                    key={st}
-                    onClick={() => setStatusFilter(st)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${
-                      statusFilter === st
-                        ? 'bg-[#0C4A9E] text-white shadow-xs'
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
-                    }`}
-                  >
-                    {st === 'ALL' ? 'ሁሉም' : SCHEDULE_TASK_STATUS_CONFIG[st as ScheduleTaskStatus]?.amharicLabel}
-                  </button>
-                )
-              )}
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            {deptAssignments
-              .filter((a) => statusFilter === 'ALL' || a.status === statusFilter)
-              .map((asgn) => {
-                const statusCfg = SCHEDULE_TASK_STATUS_CONFIG[asgn.status];
-
-                return (
-                  <div
-                    key={asgn.id}
-                    className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30 flex flex-col md:flex-row md:items-center justify-between gap-4"
-                  >
-                    <div className="space-y-1.5 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${statusCfg?.bgClass} ${statusCfg?.colorClass} ${statusCfg?.borderClass}`}>
-                          {statusCfg?.amharicLabel}
-                        </span>
-                        <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                          {asgn.title}
-                        </h4>
-                      </div>
-
-                      <p className="text-xs text-slate-600 dark:text-slate-300">
-                        {asgn.instructions}
-                      </p>
-
-                      <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500 pt-1">
-                        <span>ክፍለ-ጊዜ፦ <strong className="text-slate-700 dark:text-slate-300">{asgn.agendaSlotTitle}</strong></span>
-                        <span>ዕለት፦ {asgn.programDate} ({asgn.programTime})</span>
-                        <span>ተረኛ ኃላፊ፦ <strong className="text-[#0C4A9E] dark:text-[#7FAFFF]">{asgn.responsibleLeadName}</strong></span>
-                        {asgn.groupName && <span>ምድብ፦ {asgn.groupName}</span>}
-                        {asgn.requiredDeliverable && (
-                          <span className="text-[#8B0000] dark:text-[#FFB4AB] font-bold">
-                            የሚጠበቅ ሰነድ፦ {asgn.requiredDeliverable}
+              {pendingRequests.length === 0 ? (
+                <div className="text-center py-6 text-slate-400">
+                  <UserCheck className="w-8 h-8 mx-auto text-emerald-500/60 mb-1.5" />
+                  <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    በዚህ ክፍል ምንም አዲስ የአባልነት ጥያቄ የለም
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800 overflow-hidden">
+                  {pendingRequests.map((req) => (
+                    <div
+                      key={req.id}
+                      className="p-3.5 bg-slate-50/40 dark:bg-slate-900/30 flex flex-col md:flex-row md:items-center justify-between gap-3"
+                    >
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                            {req.userName}
+                          </h4>
+                          <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                            · {MEMBERSHIP_STATUS_CONFIG[req.status].amharicLabel}
                           </span>
+                          {req.division && (
+                            <span className="text-[11px] font-semibold text-[#0C4A9E] dark:text-[#7FAFFF]">
+                              · {DIVISIONS[req.division]?.titleAmharic || req.division}
+                            </span>
+                          )}
+                        </div>
+
+                        <p className="text-[11px] text-slate-500 flex flex-wrap items-center gap-x-2">
+                          <span className="font-mono text-slate-700 dark:text-slate-300">{req.userEmail}</span>
+                          <span>· {req.createdAt}</span>
+                          {req.sundaySchoolId && (
+                            <span className="font-mono font-bold text-[#8B0000] dark:text-[#FFD54F]">
+                              · ID: {req.sundaySchoolId}
+                            </span>
+                          )}
+                          {req.requestedPosition && (
+                            <span className="font-semibold text-indigo-700 dark:text-indigo-300">
+                              · {EHUD_DEPARTMENT_POSITIONS[req.requestedPosition]?.rank}ኛ. {EHUD_DEPARTMENT_POSITIONS[req.requestedPosition]?.amharicTitle}
+                            </span>
+                          )}
+                        </p>
+
+                        {req.serviceSkills && req.serviceSkills.length > 0 && (
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                            ክህሎት፦ {req.serviceSkills.join(' · ')}
+                          </p>
+                        )}
+
+                        {req.preferredResponsibilities && (
+                          <p className="text-[11px] text-slate-600 dark:text-slate-400 italic">
+                            የሚመርጡት ኃላፊነት፦ «{req.preferredResponsibilities}»
+                          </p>
                         )}
                       </div>
 
-                      {asgn.adminFeedback && (
-                        <div className="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-[11px] text-amber-900 dark:text-amber-200">
-                          <span className="font-bold">የአስተዳዳሪ አስተያየት፦</span> {asgn.adminFeedback}
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAppointingUser(null);
+                            setApprovingMembership(req);
+                            setAssignedCanApproveForApproval(Boolean(req.canApproveMembers));
+                            const ehudPos = getEhudPositionFromMembership(
+                              req.requestedPosition,
+                              req.role
+                            );
+                            setAssignedEhudPositionForApproval(
+                              ehudPos === 'DEPARTMENT_HEAD' && !isSuperAdmin ? 'MIKITIL_HEAD' : ehudPos
+                            );
+                            setAssignedRoleForApproval(
+                              req.departmentId === 'ehud_merha_gibir'
+                                ? mapEhudPositionToUserRole(
+                                    ehudPos === 'DEPARTMENT_HEAD' && !isSuperAdmin
+                                      ? 'MIKITIL_HEAD'
+                                      : ehudPos
+                                  )
+                                : req.requestedPosition === 'DEPARTMENT_HEAD' && isSuperAdmin
+                                ? 'ADMIN'
+                                : req.role || 'CONTRIBUTOR'
+                            );
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1 whitespace-nowrap cursor-pointer"
+                        >
+                          <UserCheck className="w-3.5 h-3.5" />
+                          <span>አጽድቅ</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRejectingMembership(req);
+                            setRejectionReasonText('');
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-rose-300 dark:border-rose-800 hover:bg-rose-50 text-rose-700 dark:text-rose-400 font-bold text-xs flex items-center gap-1 whitespace-nowrap cursor-pointer"
+                        >
+                          <UserX className="w-3.5 h-3.5" />
+                          <span>አትቀበል</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Cross-department pending requests visible to Super Admin */}
+              {!isDepartmentPortalLocked && isSuperAdmin && otherDeptPendingRequests.length > 0 && (
+                <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2">
+                  <h4 className="text-xs font-bold text-[#B88500] flex items-center gap-1.5">
+                    <Building2 className="w-3.5 h-3.5" />
+                    <span>በሌሎች ክፍሎች የቀረቡ ጥያቄዎች ({otherDeptPendingRequests.length})</span>
+                  </h4>
+                  <div className="rounded-xl border border-amber-200 dark:border-amber-900/60 divide-y divide-amber-100 dark:divide-amber-900/40 overflow-hidden">
+                    {otherDeptPendingRequests.map((req) => (
+                      <div
+                        key={req.id}
+                        className="p-3 bg-amber-50/40 dark:bg-amber-950/20 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap text-xs">
+                            <span className="font-bold text-slate-900 dark:text-white">
+                              {req.userName}
+                            </span>
+                            <span className="font-semibold text-[#0C4A9E] dark:text-[#7FAFFF]">
+                              · {req.departmentName}
+                            </span>
+                            {req.sundaySchoolId && (
+                              <span className="text-[11px] font-mono font-bold text-[#8B0000] dark:text-[#FFD54F]">
+                                · ID: {req.sundaySchoolId}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-500 font-mono">{req.userEmail}</p>
                         </div>
-                      )}
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setActiveDepartment(req.departmentId)}
+                            className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-200 whitespace-nowrap cursor-pointer"
+                          >
+                            ወደ ክፍሉ ቀይር
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAppointingUser(null);
+                              setApprovingMembership(req);
+                              setAssignedCanApproveForApproval(Boolean(req.canApproveMembers));
+                              const ehudPos = getEhudPositionFromMembership(
+                                req.requestedPosition,
+                                req.role
+                              );
+                              setAssignedEhudPositionForApproval(ehudPos);
+                              setAssignedRoleForApproval(
+                                req.departmentId === 'ehud_merha_gibir'
+                                  ? mapEhudPositionToUserRole(ehudPos)
+                                  : req.requestedPosition === 'DEPARTMENT_HEAD'
+                                  ? 'ADMIN'
+                                  : req.role || 'MEMBER'
+                              );
+                            }}
+                            className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold whitespace-nowrap cursor-pointer"
+                          >
+                            አጽድቅ
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Pre-Approve / Add Member Directly by Email */}
+              <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
+                <div>
+                  <h4 className="text-xs font-bold text-[#8B0000] dark:text-[#FFD54F] flex items-center gap-1.5">
+                    <UserPlus className="w-4 h-4" />
+                    <span>በኢሜይል ቀድሞ አጽድቅ / አባል ጨምር</span>
+                  </h4>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    አባሉ አንዴ Login ሲያደርግ ወዲያውኑ ጸድቆ ወደ «{currentDeptInfo?.shortTitleAmharic}» ይገባል።
+                  </p>
+                </div>
+
+                <form
+                  onSubmit={handleCreateInviteSubmit}
+                  className="p-4 rounded-xl border border-[#B88500]/30 bg-amber-50/40 dark:bg-slate-900/50 space-y-3"
+                >
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        የአባሉ ኢሜይል *
+                      </label>
+                      <div className="relative">
+                        <Mail className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                        <input
+                          type="email"
+                          required
+                          value={inviteEmail}
+                          onChange={(e) => setInviteEmail(e.target.value)}
+                          placeholder="elsabet@example.com"
+                          className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-[#B88500]"
+                        />
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
-                      {asgn.status === 'SUBMITTED' && (
-                        <button
-                          onClick={() => {
-                            setReviewingAssignment(asgn);
-                            setReviewFeedbackText('');
-                          }}
-                          className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center gap-1 shadow-xs"
-                        >
-                          <FileCheck className="w-3.5 h-3.5" />
-                          <span>ግምገማ ስጥ (Review)</span>
-                        </button>
-                      )}
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        ሙሉ ስም *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={inviteFullName}
+                        onChange={(e) => setInviteFullName(e.target.value)}
+                        placeholder="ኤልሳቤጥ ..."
+                        className="w-full px-3 py-1.5 text-xs rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-[#B88500]"
+                      />
+                    </div>
 
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        የሰንበት ት/ቤት መታወቂያ (ID)
+                      </label>
+                      <input
+                        type="text"
+                        value={inviteSundaySchoolId}
+                        onChange={(e) => setInviteSundaySchoolId(e.target.value)}
+                        placeholder="ለምሳሌ፡ TS-2019-042"
+                        className="w-full px-3 py-1.5 text-xs rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-[#B88500]"
+                      />
+                    </div>
+
+                    {activeDepartment === 'ehud_merha_gibir' ? (
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                          የክፍል ሚና *
+                        </label>
+                        <select
+                          value={inviteEhudPosition}
+                          onChange={(e) =>
+                            setInviteEhudPosition(e.target.value as EhudDepartmentPosition)
+                          }
+                          className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-[#B88500]"
+                        >
+                          {isSuperAdmin && (
+                            <option value="DEPARTMENT_HEAD">1ኛ. የክፍል ኃላፊ (Department Head)</option>
+                          )}
+                          <option value="MIKITIL_HEAD">2ኛ. ምክትል ኃላፊ (Mikitil Head)</option>
+                          <option value="MEMBER">3ኛ. አባል (Member)</option>
+                        </select>
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                          የክፍል ሚና *
+                        </label>
+                        <select
+                          value={inviteRole}
+                          onChange={(e) => setInviteRole(e.target.value as UserRole)}
+                          className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-[#B88500]"
+                        >
+                          <option value="MEMBER">አባል (Member)</option>
+                          <option value="CONTRIBUTOR">ደራሲ / አቅራቢ (Contributor)</option>
+                          <option value="REVIEWER">ገምጋሚ (Reviewer)</option>
+                          {isSuperAdmin && (
+                            <option value="ADMIN">የክፍሉ አስተዳዳሪ (Department Admin)</option>
+                          )}
+                        </select>
+                      </div>
+                    )}
+
+                    <div className="flex items-end">
                       <button
-                        onClick={() => deleteScheduleAssignment(asgn.id)}
-                        className="px-2.5 py-1.5 rounded-lg text-slate-400 hover:text-rose-600 text-xs transition-colors"
+                        type="submit"
+                        disabled={isSendingInvite}
+                        className="w-full py-1.5 px-3 rounded-lg bg-[#0C4A9E] hover:bg-[#072958] disabled:opacity-50 text-white text-xs font-bold flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer"
                       >
-                        ሰርዝ
+                        <UserCheck className="w-3.5 h-3.5" />
+                        <span>{isSendingInvite ? 'በማስቀመጥ ላይ...' : 'ቀድሞ አጽድቅ'}</span>
                       </button>
                     </div>
                   </div>
-                );
-              })}
-          </div>
-        </div>
-      )}
 
-      {/* 7. SUBMISSIONS & REVIEW TAB */}
-      {activeTab === 'SUBMISSIONS' && (
-        <div className="bg-white dark:bg-[#111D30] rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
-            <div>
-              <h3 className="text-sm font-bold font-serif-ethiopic text-slate-900 dark:text-white flex items-center gap-2">
-                <FileCheck className="w-4 h-4 text-indigo-600" />
-                <span>የቀረቡ የሥራ ሰነዶችና ግምገማ ({submittedTasks.length})</span>
-              </h3>
-              <p className="text-xs text-slate-500">
-                አባላት ያቀረቧቸውን ሰነዶች፣ ስክሪፕቶችና ሪፖርቶች መርምረው ያጽድቁ ወይም ማሻሻያ ይጠይቁ።
-              </p>
-            </div>
-          </div>
+                  {isSuperAdmin && (
+                    <label className="flex items-center gap-2 p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/70 border border-emerald-300/70 dark:border-emerald-800/70 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={inviteCanApproveMembers}
+                        onChange={(e) => setInviteCanApproveMembers(e.target.checked)}
+                        className="rounded text-emerald-600 focus:ring-[#B88500]"
+                      />
+                      <span className="text-[11px] font-bold text-emerald-900 dark:text-emerald-200">
+                        የ«{currentDeptInfo?.shortTitleAmharic || activeDepartment}» አባላትን ብቻ ማረጋገጥና ማጽደቅ ይችላል
+                      </span>
+                    </label>
+                  )}
 
-          {submittedTasks.length === 0 ? (
-            <div className="text-center py-12 text-slate-400">
-              <CheckCircle2 className="w-12 h-12 mx-auto text-emerald-500/60 mb-2" />
-              <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
-                ምንም ግምገማ የሚጠብቅ ሰነድ የለም
-              </p>
-              <p className="text-xs text-slate-500">
-                ሁሉም የቀረቡ የሥራ ውጤቶች ተገምግመው ተጠናቀዋል።
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {submittedTasks.map((task) => (
-                <div
-                  key={task.id}
-                  className="p-5 rounded-2xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/30 dark:bg-indigo-950/20 space-y-3"
-                >
+                  {inviteFeedback && (
+                    <div
+                      className={`p-2.5 rounded-lg text-xs font-medium ${
+                        inviteFeedback.type === 'success'
+                          ? 'bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
+                          : 'bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200'
+                      }`}
+                    >
+                      {inviteFeedback.text}
+                    </div>
+                  )}
+                </form>
+
+                {activeInvitesForDept.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                      በመጠባበቅ ላይ ያሉ ቀድመው የጸደቁ ግብዣዎች ({activeInvitesForDept.length})
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {activeInvitesForDept.map((inv) => (
+                        <div
+                          key={inv.id}
+                          className="p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-900 bg-emerald-50/40 dark:bg-emerald-950/20 flex items-center justify-between gap-2"
+                        >
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                                {inv.fullName}
+                              </span>
+                              {inv.canApproveMembers && (
+                                <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
+                                  · አባል አጽዳቂ
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[10px] font-mono text-slate-500 truncate">
+                              {inv.emailLower} •{' '}
+                              {inv.departmentId === 'ehud_merha_gibir'
+                                ? (() => {
+                                    const pos = getEhudPositionFromMembership(inv.requestedPosition, inv.role);
+                                    return `${EHUD_DEPARTMENT_POSITIONS[pos].rank}ኛ. ${EHUD_DEPARTMENT_POSITIONS[pos].amharicTitle}`;
+                                  })()
+                                : inv.role}
+                              {inv.sundaySchoolId ? ` • ID: ${inv.sundaySchoolId}` : ''}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => cancelDepartmentInvite(inv.id)}
+                            className="px-2 py-1 rounded-lg text-[10px] font-bold text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-950 shrink-0 cursor-pointer"
+                          >
+                            ሰርዝ
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Rejected or Suspended Memberships */}
+              {rejectedOrSuspendedMemberships.length > 0 && (
+                <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-2.5">
+                  <h4 className="text-xs font-bold text-rose-700 dark:text-rose-300 flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    <span>ውድቅ የተደረጉ ወይም የታገዱ አባላት ({rejectedOrSuspendedMemberships.length})</span>
+                  </h4>
+                  <div className="space-y-2">
+                    {rejectedOrSuspendedMemberships.map((mem) => (
+                      <div
+                        key={mem.id}
+                        className="p-3 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/40 dark:bg-rose-950/20 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                      >
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-slate-900 dark:text-white">
+                              {mem.userName}
+                            </span>
+                            <span className="text-[11px] font-semibold text-rose-700 dark:text-rose-300">
+                              · {MEMBERSHIP_STATUS_CONFIG[mem.status].amharicLabel}
+                            </span>
+                          </div>
+                          <p className="text-[11px] font-mono text-slate-500">{mem.userEmail}</p>
+                          {mem.rejectionReason && (
+                            <p className="text-[11px] text-rose-700 dark:text-rose-300">
+                              ምክንያት፦ {mem.rejectionReason}
+                            </p>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAppointingUser(null);
+                            setApprovingMembership(mem);
+                            setAssignedCanApproveForApproval(Boolean(mem.canApproveMembers));
+                            const ehudPos = getEhudPositionFromMembership(
+                              mem.requestedPosition,
+                              mem.role
+                            );
+                            setAssignedEhudPositionForApproval(
+                              ehudPos === 'DEPARTMENT_HEAD' && !isSuperAdmin ? 'MIKITIL_HEAD' : ehudPos
+                            );
+                            setAssignedRoleForApproval(
+                              mem.departmentId === 'ehud_merha_gibir'
+                                ? mapEhudPositionToUserRole(
+                                    ehudPos === 'DEPARTMENT_HEAD' && !isSuperAdmin
+                                      ? 'MIKITIL_HEAD'
+                                      : ehudPos
+                                  )
+                                : mem.role || 'MEMBER'
+                            );
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold shrink-0 cursor-pointer"
+                        >
+                          እንደገና አጽድቅ
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Super Admin Registered Accounts Directory */}
+              {isSuperAdmin && (
+                <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <div>
-                      <div className="flex items-center gap-2">
-                        <span className="px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-900 dark:bg-indigo-900 dark:text-indigo-100 text-[10px] font-bold">
-                          የቀረበ ሰነድ
-                        </span>
-                        <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                          {task.title}
-                        </h4>
-                      </div>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        ያቀረበው አባል፦ <strong className="text-slate-700 dark:text-slate-300">{task.deliverableSubmission?.submittedByName || task.responsibleLeadName}</strong> | ቀን፦ {task.deliverableSubmission?.submittedAt || 'ያልተገለጸ'}
+                      <h4 className="text-xs font-bold text-[#0C4A9E] dark:text-[#7FAFFF] flex items-center gap-1.5">
+                        <Users className="w-3.5 h-3.5" />
+                        <span>የተመዘገቡ አካውንቶች ዝርዝር ({registeredUsers.length})</span>
+                      </h4>
+                      <p className="text-[11px] text-slate-500">
+                        ገና በዚህ ክፍል ያልጸደቁ ተጠቃሚዎችን በቀጥታ መፈለግና ማጽደቅ ይችላሉ።
                       </p>
                     </div>
-
-                    <button
-                      onClick={() => {
-                        setReviewingAssignment(task);
-                        setReviewFeedbackText('');
-                      }}
-                      className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm"
-                    >
-                      <FileCheck className="w-4 h-4" />
-                      <span>ገምግም (Review Submission)</span>
-                    </button>
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
+                      <input
+                        type="text"
+                        value={userDirectoryQuery}
+                        onChange={(e) => setUserDirectoryQuery(e.target.value)}
+                        placeholder="በስም፣ በኢሜይል ወይም በID ፈልግ..."
+                        className="pl-8 pr-3 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
+                      />
+                    </div>
                   </div>
 
-                  {/* Submitted Content Preview */}
-                  {task.deliverableSubmission?.content && (
-                    <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-800 dark:text-slate-200">
-                      <span className="font-bold text-slate-500 block mb-1">የቀረበ ጽሑፍ / ማጠቃለያ፦</span>
-                      <p className="leading-relaxed">{task.deliverableSubmission.content}</p>
+                  {registeredUsersError && (
+                    <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300">
+                      የተጠቃሚዎችን ዝርዝር መጫን አልተቻለም፦ {registeredUsersError}
                     </div>
                   )}
 
-                  {task.deliverableSubmission?.fileName && (
-                    <div className="flex items-center gap-2 p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs">
-                      <FileText className="w-4 h-4 text-[#0C4A9E]" />
-                      <span className="font-medium text-slate-700 dark:text-slate-300">
-                        የተያያዘ ሰነድ፦ {task.deliverableSubmission.fileName}
-                      </span>
+                  {unassignedRegisteredUsers.length === 0 ? (
+                    <p className="text-[11px] text-slate-400 italic py-2">
+                      በ«{currentDeptInfo?.shortTitleAmharic}» ውስጥ ገና ያልጸደቀ ተመዝጋቢ አልተገኘም።
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 max-h-72 overflow-y-auto pr-1">
+                      {unassignedRegisteredUsers.map((u) => (
+                        <div
+                          key={u.id}
+                          className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 flex items-center justify-between gap-2"
+                        >
+                          <div className="min-w-0">
+                            <div className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                              {u.fullName}
+                            </div>
+                            <div className="text-[10px] font-mono text-slate-500 truncate">{u.email}</div>
+                            <div className="flex flex-wrap gap-1.5 mt-1">
+                              {u.sundaySchoolId && (
+                                <span className="text-[10px] font-mono font-bold text-[#8B0000] dark:text-[#FFD54F]">
+                                  ID: {u.sundaySchoolId}
+                                </span>
+                              )}
+                              {u.requestedPosition && (
+                                <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300">
+                                  {EHUD_DEPARTMENT_POSITIONS[u.requestedPosition]?.amharicTitle}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setApprovingMembership(null);
+                              setAppointingUser(u);
+                              setAssignedCanApproveForApproval(false);
+                              const ehudPos = getEhudPositionFromMembership(
+                                u.requestedPosition,
+                                u.role
+                              );
+                              setAssignedEhudPositionForApproval(ehudPos);
+                              setAssignedRoleForApproval(
+                                activeDepartment === 'ehud_merha_gibir'
+                                  ? mapEhudPositionToUserRole(ehudPos)
+                                  : u.requestedPosition === 'DEPARTMENT_HEAD'
+                                  ? 'ADMIN'
+                                  : 'MEMBER'
+                              );
+                            }}
+                            className="px-2.5 py-1.5 rounded-lg bg-[#0C4A9E] hover:bg-[#072958] text-white text-[11px] font-bold shrink-0 cursor-pointer"
+                          >
+                            ወደ ክፍሉ አጽድቅ
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
-              ))}
+              )}
             </div>
           )}
         </div>
@@ -2216,6 +2423,79 @@ export const DepartmentAdminWorkspace: React.FC<{
             </div>
 
             <form onSubmit={handleCreateAssignmentSubmit} className="space-y-3.5">
+              {/* Sunday Sheet & Slot Selector */}
+              {relevantDailySheets.length > 0 && (
+                <div className="p-3 rounded-xl bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/70 dark:border-blue-900/50 space-y-2.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] font-bold text-[#0C4A9E] dark:text-[#7FAFFF] mb-1">
+                        የእሁድ መርሐ ግብር ሉህ ምረጥ
+                      </label>
+                      <select
+                        value={assignForm.scheduleProgramId}
+                        onChange={(e) => {
+                          const picked = relevantDailySheets.find((s) => s.id === e.target.value);
+                          if (!picked) return;
+                          const firstSlot = picked.slots[0];
+                          setAssignForm({
+                            ...assignForm,
+                            scheduleProgramId: picked.id,
+                            division: picked.division,
+                            programDate: picked.dateAmharic,
+                            deadlineDate: picked.dateAmharic,
+                            programTime: firstSlot?.timeRange || picked.timeAmharic,
+                            agendaSlotId: firstSlot?.id || 'general_slot',
+                            agendaSlotTitle: firstSlot?.slotTitle || picked.mainTopic,
+                            groupName: assignForm.groupName || picked.leader,
+                          });
+                        }}
+                        className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-white dark:bg-slate-900 border border-blue-200 dark:border-slate-700"
+                      >
+                        {relevantDailySheets.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.dateAmharic} — {s.mainTopic}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-[#0C4A9E] dark:text-[#7FAFFF] mb-1">
+                        ክፍለ-ጊዜ (Agenda Slot)
+                      </label>
+                      <select
+                        value={assignForm.agendaSlotId}
+                        onChange={(e) => {
+                          const activeSheet = relevantDailySheets.find(
+                            (s) => s.id === assignForm.scheduleProgramId
+                          );
+                          const pickedSlot = activeSheet?.slots.find((sl) => sl.id === e.target.value);
+                          if (pickedSlot) {
+                            setAssignForm({
+                              ...assignForm,
+                              agendaSlotId: pickedSlot.id,
+                              agendaSlotTitle: pickedSlot.slotTitle,
+                              programTime: pickedSlot.timeRange,
+                              title: assignForm.title || `${pickedSlot.slotTitle} አፈጻጸም`,
+                            });
+                          }
+                        }}
+                        className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-white dark:bg-slate-900 border border-blue-200 dark:border-slate-700"
+                      >
+                        {(
+                          relevantDailySheets.find((s) => s.id === assignForm.scheduleProgramId)
+                            ?.slots || []
+                        ).map((sl) => (
+                          <option key={sl.id} value={sl.id}>
+                            {sl.timeRange} — {sl.slotTitle}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   የተያያዘው ክፍለ-ጊዜ (Agenda Slot Title) *
@@ -2260,6 +2540,42 @@ export const DepartmentAdminWorkspace: React.FC<{
                   className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
                 />
               </div>
+
+              {activeDepartment === 'ehud_merha_gibir' && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    የአዘጋጅ ምድብ ፈጣን ምርጫ (Squad Quick-Select)
+                  </label>
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      const sq = allEhudSquads.find((s) => s.id === e.target.value);
+                      if (!sq) return;
+                      const matchedIds = approvedMembers
+                        .filter((m) =>
+                          sq.members.some((name) => name.includes(m.userName)) ||
+                          sq.coordinatorName.includes(m.userName)
+                        )
+                        .map((m) => m.userId);
+                      setAssignForm({
+                        ...assignForm,
+                        groupName: sq.nameAmharic,
+                        assignedMemberIds:
+                          matchedIds.length > 0 ? matchedIds : assignForm.assignedMemberIds,
+                        responsibleLeadId: matchedIds[0] || assignForm.responsibleLeadId,
+                      });
+                    }}
+                    className="w-full px-3 py-2 text-xs rounded-xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-300/70 dark:border-amber-800 text-slate-800 dark:text-slate-200"
+                  >
+                    <option value="">-- ከ2019 ምድቦች አንዱን ይምረጡ (10 የወጣት / ሕፃናት / ማዕከላውያን) --</option>
+                    {allEhudSquads.map((sq) => (
+                      <option key={sq.id} value={sq.id}>
+                        {sq.nameAmharic} — አስተባባሪ፦ {sq.coordinatorName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>

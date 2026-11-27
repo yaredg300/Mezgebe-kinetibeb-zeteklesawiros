@@ -30,7 +30,7 @@ service cloud.firestore {
 
     function isSuperAdmin() {
       return isSignedIn() && (
-        (request.auth.token.email in ['goferconstruction@gmail.com', 'yaredcotm@gmail.com', 'admin@teklesawiros.org'] && request.auth.token.email_verified == true) ||
+        (request.auth.token.email in ['finalizedyosef@gmail.com', 'goferconstruction@gmail.com', 'yaredcotm@gmail.com', 'admin@teklesawiros.org'] && request.auth.token.email_verified == true) ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
@@ -564,5 +564,63 @@ service cloud.firestore {
         isSuperAdmin()
       );
     }
+
+    // 12. Sunday Daily Plan Sheets (Ehud Merha Gibir)
+    function isValidDailySheet(data) {
+      return data.keys().hasAll([
+               'id', 'division', 'monthAmharic', 'dayNumber', 'dateAmharic',
+               'mainTopic', 'leader', 'presenterOrTeacher', 'timeAmharic',
+               'purpose', 'slots', 'preProgramNeeds'
+             ]) &&
+             data.keys().hasOnly([
+               'id', 'division', 'monthAmharic', 'dayNumber', 'dateAmharic',
+               'mainTopic', 'leader', 'presenterOrTeacher', 'timeAmharic',
+               'purpose', 'slots', 'preProgramNeeds', 'preProgramChecklistState',
+               'squadName', 'updatedAt', 'updatedBy', 'postProgramStats'
+             ]) &&
+             data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.division in ['children', 'intermediates', 'youth'] &&
+             data.monthAmharic is string && data.monthAmharic.size() > 0 && data.monthAmharic.size() <= 50 &&
+             data.dayNumber is int && data.dayNumber >= 1 && data.dayNumber <= 30 &&
+             data.dateAmharic is string && data.dateAmharic.size() > 0 && data.dateAmharic.size() <= 100 &&
+             data.mainTopic is string && data.mainTopic.size() > 0 && data.mainTopic.size() <= 250 &&
+             data.leader is string && data.leader.size() > 0 && data.leader.size() <= 200 &&
+             data.presenterOrTeacher is string && data.presenterOrTeacher.size() > 0 && data.presenterOrTeacher.size() <= 200 &&
+             data.timeAmharic is string && data.timeAmharic.size() > 0 && data.timeAmharic.size() <= 100 &&
+             data.purpose is string && data.purpose.size() <= 1500 &&
+             data.slots is list && data.slots.size() <= 30 &&
+             data.preProgramNeeds is list && data.preProgramNeeds.size() <= 30 &&
+             (!('preProgramChecklistState' in data) || data.preProgramChecklistState is map) &&
+             (!('squadName' in data) || (data.squadName is string && data.squadName.size() <= 150)) &&
+             (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64)) &&
+             (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() <= 150)) &&
+             (!('postProgramStats' in data) || data.postProgramStats is map);
+    }
+
+    match /sunday_daily_sheets/{sheetId} {
+      allow get, list: if true;
+
+      allow create: if isSignedIn() &&
+                    isValidId(sheetId) &&
+                    isValidDailySheet(incoming()) &&
+                    incoming().id == sheetId &&
+                    (canAuthorizeMembers('ehud_merha_gibir') || isSuperAdmin());
+
+      allow update: if isSignedIn() &&
+                    isValidId(sheetId) &&
+                    isValidDailySheet(incoming()) &&
+                    incoming().id == existing().id && (
+                      canAuthorizeMembers('ehud_merha_gibir') ||
+                      isSuperAdmin() ||
+                      (
+                        isApprovedMember('ehud_merha_gibir') &&
+                        incoming().diff(existing()).affectedKeys().hasOnly(['preProgramChecklistState', 'updatedAt', 'updatedBy'])
+                      )
+                    );
+
+      allow delete: if isValidId(sheetId) &&
+                    (canAuthorizeMembers('ehud_merha_gibir') || isSuperAdmin());
+    }
   }
 }
+

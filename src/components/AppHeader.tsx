@@ -27,7 +27,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   actions,
   showDepartmentSwitcher = true,
 }) => {
-  const { themeMode, toggleThemeMode, activeDepartment } = useArchive();
+  const { themeMode, toggleThemeMode, activeDepartment, canSwitchDepartments, isDepartmentPortalLocked } = useArchive();
+  const allowDeptSwitchUI = !isDepartmentPortalLocked && canSwitchDepartments;
 
   const currentDeptInfo = DEPARTMENTS[activeDepartment] || {
     titleAmharic: activeDepartment === 'ehud_merha_gibir' ? 'የእሁድ መርሃ ግብር ክፍል' : 'የኪነጥበብ ክፍል',
@@ -37,14 +38,14 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   const displaySubtitle = subtitle || currentDeptInfo.subtitleAmharic;
 
   return (
-    <header className="sticky top-0 z-30 bg-white/95 dark:bg-[#111D30]/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 shadow-xs px-2.5 sm:px-4 py-2 sm:py-2.5">
-      <div className="max-w-6xl mx-auto flex items-center justify-between gap-1.5 sm:gap-3">
+    <header className="sticky top-0 z-30 bg-white/95 dark:bg-[#111D30]/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 shadow-xs px-2.5 sm:px-4 py-1.5 sm:py-2">
+      <div className="max-w-6xl mx-auto flex items-center justify-between gap-1.5 sm:gap-2.5">
         {/* Left Section: Back button or Logo + Title */}
         <div className="flex items-center gap-2 min-w-0">
           {showBack && onBackClick ? (
             <button
               onClick={onBackClick}
-              className="p-1.5 sm:p-2 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0"
+              className="p-1.5 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0"
               title="ተመለስ"
             >
               <ArrowLeft className="w-5 h-5" />
@@ -63,7 +64,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           )}
 
           <div className="min-w-0">
-            <h1 className="text-xs sm:text-base font-bold font-serif-ethiopic text-[#0C4A9E] dark:text-[#7FAFFF] truncate leading-tight">
+            <h1 className="text-xs sm:text-sm font-bold font-serif-ethiopic text-[#0C4A9E] dark:text-[#7FAFFF] truncate leading-tight">
               {displayTitle}
             </h1>
             {displaySubtitle && (
@@ -75,8 +76,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         </div>
 
         {/* Center / Right Section: Department Switcher + Actions */}
-        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-          {showDepartmentSwitcher && (
+        <div className="flex items-center gap-1 shrink-0">
+          {showDepartmentSwitcher && allowDeptSwitchUI && (
             <div className="flex items-center">
               <DepartmentSwitcher
                 variant="compact"
@@ -86,11 +87,11 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           )}
 
           {/* All Departments Hub Button */}
-          {onOpenDepartmentsHub && (
+          {allowDeptSwitchUI && onOpenDepartmentsHub && (
             <button
               type="button"
               onClick={onOpenDepartmentsHub}
-              className="p-1.5 sm:p-2 rounded-xl text-amber-700 dark:text-[#FFD54F] hover:bg-amber-50 dark:hover:bg-amber-950/40 border border-[#B88500]/30 transition-colors flex items-center gap-1"
+              className="p-1.5 rounded-lg text-amber-700 dark:text-[#FFD54F] hover:bg-amber-50 dark:hover:bg-amber-950/40 border border-[#B88500]/30 transition-colors flex items-center gap-1"
               title="ሁሉንም የሰንበት ትምህርት ቤት ክፍሎች እይ"
             >
               <Layers className="w-4 h-4 text-[#B88500]" />

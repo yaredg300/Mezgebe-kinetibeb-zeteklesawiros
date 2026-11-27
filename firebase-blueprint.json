@@ -600,6 +600,78 @@
         }
       },
       "required": ["id", "departmentId", "title", "message", "type", "isRead"]
+    },
+    "sundayDailySheet": {
+      "title": "SundayDailyPlanSheet",
+      "description": "Sunday order-of-service timetable, readiness checklist, and post-program attendance report",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique sheet identifier",
+          "maxLength": 128
+        },
+        "division": {
+          "type": "string",
+          "description": "Sunday school age division",
+          "enum": ["children", "intermediates", "youth"]
+        },
+        "monthAmharic": {
+          "type": "string",
+          "description": "Ethiopian month name",
+          "maxLength": 50
+        },
+        "dayNumber": {
+          "type": "integer",
+          "description": "Day of Ethiopian month (1-30)"
+        },
+        "dateAmharic": {
+          "type": "string",
+          "description": "Formatted Amharic date",
+          "maxLength": 100
+        },
+        "mainTopic": {
+          "type": "string",
+          "description": "Main Sunday theme or topic",
+          "maxLength": 250
+        },
+        "leader": {
+          "type": "string",
+          "description": "Service leader or assigned squad",
+          "maxLength": 200
+        },
+        "presenterOrTeacher": {
+          "type": "string",
+          "description": "Main teacher or preacher",
+          "maxLength": 200
+        },
+        "timeAmharic": {
+          "type": "string",
+          "description": "Program hours",
+          "maxLength": 100
+        },
+        "purpose": {
+          "type": "string",
+          "description": "Spiritual objective of the Sunday program",
+          "maxLength": 1500
+        },
+        "squadName": {
+          "type": "string",
+          "description": "Optional assigned organizer squad",
+          "maxLength": 150
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Last update timestamp",
+          "maxLength": 64
+        },
+        "updatedBy": {
+          "type": "string",
+          "description": "Name of editor",
+          "maxLength": 150
+        }
+      },
+      "required": ["id", "division", "monthAmharic", "dayNumber", "dateAmharic", "mainTopic", "leader", "presenterOrTeacher", "timeAmharic", "purpose", "slots", "preProgramNeeds"]
     }
   },
   "firestore": {
@@ -642,6 +714,10 @@
     "/department_invites/{inviteId}": {
       "schema": "departmentInvite",
       "description": "Email-based administrator pre-approvals for department memberships"
+    },
+    "/sunday_daily_sheets/{sheetId}": {
+      "schema": "sundayDailySheet",
+      "description": "Sunday daily order-of-service sheets, checklist states, and attendance evaluation reports"
     }
   }
 }

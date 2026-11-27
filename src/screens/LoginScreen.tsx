@@ -64,6 +64,7 @@ export const LoginScreen: React.FC<{
   });
   const [skillsInput, setSkillsInput] = useState<string>('');
   const [responsibilitiesInput, setResponsibilitiesInput] = useState<string>('');
+  const [ehudDutyChoice, setEhudDutyChoice] = useState<string>('የመድረክ እና ሰዓት ቁጥጥር');
 
   // Gate selection for entering the app
   const [selectedDeptId, setSelectedDeptId] = useState<SundaySchoolDepartment>(() => {
@@ -163,7 +164,7 @@ export const LoginScreen: React.FC<{
 
       if (isRegisterMode) {
         const skillsArray = isEhudDept
-          ? []
+          ? [ehudDutyChoice]
           : skillsInput
               .split(',')
               .map((s) => s.trim())
@@ -177,7 +178,7 @@ export const LoginScreen: React.FC<{
           selectedDeptId,
           registerDivision,
           skillsArray,
-          isEhudDept ? '' : responsibilitiesInput,
+          isEhudDept ? ehudDutyChoice : responsibilitiesInput,
           isEhudDept ? sundaySchoolId.trim() : undefined,
           isEhudDept ? ehudPosition : undefined
         );
@@ -275,7 +276,9 @@ export const LoginScreen: React.FC<{
             የጨረቃ ገነት ቅድስት ልደታ ለማርያምና ደብረ መድኃኒት መድኃኔዓለም ቤተክርስቲያን
           </p>
           <p className="text-xs font-bold text-[#B88500] mt-1">
-            መዝገበ ኪነጥበብና የክፍሎች ማስተባበሪያ • ፲፱፻፶፯ / 1957
+            {isEhudDept
+              ? 'የእሁድ መርሃ ግብር ክፍል — የሰንበት አገልግሎት ማስተባበሪያ • ፲፱፻፶፯ / 1957'
+              : 'መዝገበ ኪነጥበብና የክፍሎች ማስተባበሪያ • ፲፱፻፶፯ / 1957'}
           </p>
         </div>
 
@@ -634,6 +637,24 @@ export const LoginScreen: React.FC<{
                           }
                         )}
                       </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        የእሁድ መርሐ ግብር አገልግሎት ምርጫ (Duty / Squad Preference)
+                      </label>
+                      <select
+                        value={ehudDutyChoice}
+                        onChange={(e) => setEhudDutyChoice(e.target.value)}
+                        className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
+                      >
+                        <option value="የመድረክ እና ሰዓት ቁጥጥር">የመድረክ አመራር እና ሰዓት ቁጥጥር</option>
+                        <option value="ጸሎትና ስንክሳር ንባብ">የመክፈቻ ጸሎትና ስንክሳር ንባብ</option>
+                        <option value="ቃለ እግዚአብሔርና ትምህርት">ቃለ እግዚአብሔርና የትምህርት አስተባባሪ</option>
+                        <option value="ወንጌልና የጋራ ዝማሬ">ወንጌል ንባብና የጋራ ዝማሬ</option>
+                        <option value="የድምፅና ቅድመ-ዝግጅት ቁጥጥር">የድምፅ ማጉያና ቅድመ-ዝግጅት ክትትል</option>
+                        <option value="ምድብ 01–10 የአዘጋጅ ቡድን">የወጣቶች አዘጋጅ ምድብ (ምድብ 01–10)</option>
+                      </select>
                     </div>
                   </>
                 ) : (

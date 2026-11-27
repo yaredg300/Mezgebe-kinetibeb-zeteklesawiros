@@ -38,16 +38,16 @@ export const BottomNav: React.FC<NavigationProps> = ({
             <button
               key={tab.id}
               onClick={() => onTabSelected(tab.id)}
-              className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl transition-all duration-200 ${
+              className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all duration-200 ${
                 isSelected
                   ? 'text-[#0C4A9E] dark:text-[#7FAFFF] font-bold'
                   : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
               }`}
             >
               <div className={`p-1 rounded-lg ${isSelected ? 'bg-[#0C4A9E]/10 dark:bg-blue-950/40' : ''}`}>
-                <IconComponent className="w-5 h-5" />
+                <IconComponent className="w-4 h-4" />
               </div>
-              <span className="text-[10px] mt-0.5">{tab.titleAmharic}</span>
+              <span className="text-[10px] mt-0.5 leading-none">{tab.titleAmharic}</span>
             </button>
           );
         })}
@@ -62,53 +62,64 @@ export const DesktopSidebar: React.FC<NavigationProps> = ({
   onCreateWorkClick,
   onOpenDepartmentsHub,
 }) => {
-  const { currentUser } = useArchive();
+  const { currentUser, activeDepartment, departmentsList, isDepartmentPortalLocked, canSwitchDepartments } = useArchive();
+  const isEhud = activeDepartment === 'ehud_merha_gibir';
+  const currentDeptInfo = departmentsList.find((d) => d.id === activeDepartment);
 
   const tabs: { id: BottomNavTab; titleAmharic: string; icon: React.FC<{ className?: string }> }[] = [
-    { id: 'HOME', titleAmharic: 'ዋና ገጽ (Home)', icon: Home },
-    { id: 'ARCHIVE', titleAmharic: 'መዝገብ (Archive)', icon: BookOpen },
-    { id: 'SEARCH', titleAmharic: 'ፈልግ (Search)', icon: Search },
-    { id: 'EVENTS', titleAmharic: 'መርሐ-ግብርና አባላት (Events)', icon: Calendar },
-    { id: 'PROFILE', titleAmharic: 'የአባል መገለጫ (Profile)', icon: User },
+    { id: 'HOME', titleAmharic: 'ዋና ገጽ', icon: Home },
+    { id: 'ARCHIVE', titleAmharic: 'መዝገብ', icon: BookOpen },
+    { id: 'SEARCH', titleAmharic: 'ፈልግ', icon: Search },
+    {
+      id: 'EVENTS',
+      titleAmharic: isEhud ? 'ሳምንታዊ መርሐ-ግብር' : 'መርሐ-ግብርና አባላት',
+      icon: Calendar,
+    },
+    { id: 'PROFILE', titleAmharic: 'መገለጫ', icon: User },
   ];
 
   return (
     <aside
       aria-label="የኮምፒውተር አሰሳ ምናሌ"
-      className="hidden md:flex flex-col w-64 h-screen sticky top-0 bg-white dark:bg-[#111D30] border-r border-[#B88500]/25 dark:border-slate-800 p-4 shadow-sm justify-between z-20 shrink-0"
+      className="hidden md:flex flex-col w-60 h-screen sticky top-0 bg-white dark:bg-[#111D30] border-r border-[#B88500]/25 dark:border-slate-800 p-3.5 shadow-sm justify-between z-20 shrink-0"
     >
       <div>
         {/* Organization / User Card at top */}
-        <div className="flex items-center gap-3 p-3 rounded-2xl bg-blue-50/70 dark:bg-blue-950/30 border border-[#B88500]/30 mb-6">
+        <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-blue-50/70 dark:bg-blue-950/30 border border-[#B88500]/30 mb-4">
           <img
             src="/assets/ic_church_logo.jpg"
             alt="ተክለ ሳዊሮስ ዓርማ"
-            className="w-11 h-11 rounded-full object-cover border-2 border-[#B88500]"
+            className="w-9 h-9 rounded-full object-cover border-2 border-[#B88500]"
             onError={(e) => {
               (e.target as HTMLElement).style.display = 'none';
             }}
           />
           <div className="min-w-0 flex-1">
-            <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
+            <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
               {currentUser.fullName}
             </h4>
-            <p className="text-xs text-[#966C00] dark:text-[#FFD54F] truncate font-medium">
-              {currentUser.department}
+            <p className="text-[11px] text-[#966C00] dark:text-[#FFD54F] truncate font-medium">
+              {currentDeptInfo?.shortTitleAmharic || currentUser.department}
             </p>
           </div>
         </div>
 
-        {/* Department Switcher */}
-        <div className="mb-5">
-          <div className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-1 mb-1.5 font-serif-ethiopic">
-            የሰንበት ት/ቤት ዋና ክፍል፦
+        {/* Department Switcher (hidden when locked into Ehud or single-department user) */}
+        {!isDepartmentPortalLocked && canSwitchDepartments ? (
+          <div className="mb-4">
+            <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-1 mb-1 font-serif-ethiopic">
+              የሰንበት ት/ቤት ክፍል፦
+            </div>
+            <DepartmentSwitcher variant="hero" onOpenAllDepartments={onOpenDepartmentsHub} />
           </div>
-          <DepartmentSwitcher variant="hero" onOpenAllDepartments={onOpenDepartmentsHub} />
-        </div>
-
-        <div className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mb-2">
-          አሰሳ / Navigation
-        </div>
+        ) : (
+          <div className="mb-4 px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 flex items-center gap-2 text-[11px] font-bold text-slate-700 dark:text-slate-200">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+            <span className="truncate font-serif-ethiopic">
+              {currentDeptInfo?.titleAmharic || 'የእሁድ መርሐ ግብር ክፍል'}
+            </span>
+          </div>
+        )}
 
         {/* Nav Links */}
         <div className="space-y-1">
@@ -119,34 +130,34 @@ export const DesktopSidebar: React.FC<NavigationProps> = ({
               <button
                 key={tab.id}
                 onClick={() => onTabSelected(tab.id)}
-                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer ${
                   isSelected
-                    ? 'bg-[#0C4A9E] text-white font-bold shadow-md'
+                    ? 'bg-[#0C4A9E] text-white font-bold shadow-sm'
                     : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60'
                 }`}
               >
-                <IconComponent className="w-5 h-5 shrink-0" />
-                <span>{tab.titleAmharic}</span>
+                <IconComponent className="w-4 h-4 shrink-0" />
+                <span className="truncate">{tab.titleAmharic}</span>
               </button>
             );
           })}
         </div>
 
-        {/* Quick Add Work Button */}
-        <div className="mt-6 px-1">
+        {/* Quick Add Work / Document Button */}
+        <div className="mt-4">
           <button
             onClick={onCreateWorkClick}
-            className="w-full py-2.5 rounded-xl bg-gradient-to-r from-[#B88500] to-[#0C4A9E] text-white text-xs font-bold flex items-center justify-center gap-2 shadow-md hover:opacity-95 transition-opacity"
+            className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-[#B88500] to-[#0C4A9E] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm hover:opacity-95 transition-opacity cursor-pointer"
           >
-            <PlusCircle className="w-4 h-4" />
-            <span>አዲስ ሥራ አቅርብ +</span>
+            <PlusCircle className="w-3.5 h-3.5 shrink-0" />
+            <span>{isEhud ? 'አዲስ የመርሐ ግብር ሰነድ' : 'አዲስ ሥራ አቅርብ'}</span>
           </button>
         </div>
       </div>
 
       {/* Bottom Organization Stamp */}
-      <div className="pt-4 border-t border-slate-100 dark:border-slate-800 text-center">
-        <p className="text-xs font-bold text-[#0C4A9E] dark:text-[#7FAFFF]">
+      <div className="pt-3 border-t border-slate-100 dark:border-slate-800 text-center">
+        <p className="text-[11px] font-bold text-[#0C4A9E] dark:text-[#7FAFFF]">
           ተክለ ሳዊሮስ ሰንበት ት/ቤት
         </p>
         <p className="text-[10px] text-[#966C00] dark:text-[#FFD54F] mt-0.5">

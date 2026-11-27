@@ -33,6 +33,7 @@ export const DepartmentSwitcher: React.FC<DepartmentSwitcherProps> = ({
     departmentsList,
     approvedDepartmentsList,
     canSwitchDepartments,
+    isDepartmentPortalLocked,
     isSuperAdmin,
   } = useArchive();
 
@@ -65,14 +66,14 @@ export const DepartmentSwitcher: React.FC<DepartmentSwitcherProps> = ({
     }
   };
 
-  // If the user has only 1 approved department and is not super admin, show ONLY their single assigned department badge
-  if (!canSwitchDepartments) {
+  // Locked portal or single department: show ONLY their single assigned department badge
+  if (isDepartmentPortalLocked || !canSwitchDepartments) {
     return (
       <div
-        className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-800 dark:text-slate-200 ${className}`}
+        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-800 dark:text-slate-200 ${className}`}
       >
-        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-        <span className="font-serif-ethiopic">
+        <div className="w-2 h-2 rounded-full bg-emerald-500" />
+        <span className="font-serif-ethiopic truncate">
           {currentDeptInfo.titleAmharic || currentDeptInfo.shortTitleAmharic}
         </span>
       </div>

@@ -29,6 +29,7 @@ export const WaitingForApprovalScreen: React.FC<{
   const {
     currentUser,
     activeDepartment,
+    isDepartmentPortalLocked,
     departmentsList,
     activeMembership,
     approvedMemberships,
@@ -244,9 +245,9 @@ export const WaitingForApprovalScreen: React.FC<{
             )}
           </div>
 
-          {/* Approved in other departments? */}
-          {approvedMemberships.length > 0 && (
-            <div className="mb-6 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-left">
+          {/* Approved in other departments? (hidden when portal is locked) */}
+          {!isDepartmentPortalLocked && approvedMemberships.length > 0 && (
+            <div className="mb-5 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-left">
               <p className="text-xs font-bold text-[#0C4A9E] dark:text-[#7FAFFF] mb-2 flex items-center gap-1.5">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                 <span>በሌላ ክፍል ውስጥ የጸደቀ አባልነት አለዎት፦</span>
@@ -260,7 +261,7 @@ export const WaitingForApprovalScreen: React.FC<{
                         onExploreOtherDepartment(m.departmentId as SundaySchoolDepartment);
                       }
                     }}
-                    className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-blue-300 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900 text-xs font-bold text-blue-900 dark:text-blue-100 flex items-center gap-1.5 shadow-xs transition-colors"
+                    className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-blue-300 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900 text-xs font-bold text-blue-900 dark:text-blue-100 flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
                   >
                     <span>{m.departmentName}</span>
                     <span className="text-[10px] text-slate-500">({m.role})</span>
@@ -270,61 +271,63 @@ export const WaitingForApprovalScreen: React.FC<{
             </div>
           )}
 
-          {/* Action buttons */}
-          <div className="space-y-2.5">
+          {/* Action buttons (Compacted) */}
+          <div className="space-y-2">
             {!activeMembership && (
               <button
                 onClick={() => {
                   setTargetDeptId(activeDepartment || 'ehud_merha_gibir');
                   setShowApplyModal(true);
                 }}
-                className="w-full py-2.5 px-4 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all"
+                className="w-full py-2 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer"
               >
                 <Send className="w-3.5 h-3.5" />
-                <span>ለ«{currentDeptInfo?.shortTitleAmharic || activeDepartment}» የአባልነት ጥያቄ ላክ (Submit Request)</span>
+                <span>ለ«{currentDeptInfo?.shortTitleAmharic || activeDepartment}» ጥያቄ ላክ</span>
               </button>
             )}
 
             <button
               onClick={handleRefresh}
               disabled={isRefreshing}
-              className="w-full py-2.5 px-4 rounded-full bg-[#0C4A9E] hover:bg-[#072958] text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all"
+              className="w-full py-2 px-4 rounded-xl bg-[#0C4A9E] hover:bg-[#072958] text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer"
             >
               <RotateCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-              <span>{isRefreshing ? 'በማረጋገጥ ላይ...' : 'የውሳኔ ሁኔታውን እንደገና ፈትሽ (Refresh)'}</span>
+              <span>{isRefreshing ? 'በማረጋገጥ ላይ...' : 'ሁኔታውን እንደገና ፈትሽ'}</span>
             </button>
 
-            <button
-              onClick={() => setShowApplyModal(true)}
-              className="w-full py-2.5 px-4 rounded-full bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-bold text-xs flex items-center justify-center gap-2 transition-colors"
-            >
-              <Layers className="w-3.5 h-3.5 text-[#B88500]" />
-              <span>ወደ ሌላ ክፍል አባልነት አመልክት (Request Another Department)</span>
-            </button>
+            {!isDepartmentPortalLocked && (
+              <button
+                onClick={() => setShowApplyModal(true)}
+                className="w-full py-2 px-4 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Layers className="w-3.5 h-3.5 text-[#B88500]" />
+                <span>ወደ ሌላ ክፍል አባልነት አመልክት</span>
+              </button>
+            )}
 
             <button
               onClick={async () => {
                 await logout();
                 if (onLogoutClick) onLogoutClick();
               }}
-              className="w-full py-2 px-4 rounded-full text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 font-medium text-xs flex items-center justify-center gap-1.5 transition-colors"
+              className="w-full py-1.5 px-4 rounded-xl text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 font-medium text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
             >
               <LogOut className="w-3.5 h-3.5" />
-              <span>ከአካውንት ውጣ (Sign Out)</span>
+              <span>ከአካውንት ውጣ</span>
             </button>
           </div>
         </ManuscriptBox>
       </div>
 
-      {/* Modal: Apply to another department */}
+      {/* Modal: Apply to department */}
       {showApplyModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="w-full max-w-md bg-white dark:bg-[#111D30] rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl p-6">
             <h3 className="text-base font-bold font-serif-ethiopic text-slate-900 dark:text-white mb-1">
-              ወደ ሌላ ክፍል አባልነት ማመልከት
+              {isDepartmentPortalLocked ? 'የአባልነት ማመልከቻ' : 'ወደ ሌላ ክፍል አባልነት ማመልከት'}
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
-              ሊቀላቀሉ የሚፈልጉትን የሰንበት ት/ቤት ክፍል፣ የእድሜ እርከን እና የአገልግሎት ክህሎት ይምረጡ።
+              የዕድሜ እርከን እና የክፍል መረጃዎን ይሙሉ።
             </p>
 
             {applySuccess && (
@@ -340,11 +343,15 @@ export const WaitingForApprovalScreen: React.FC<{
                   የሚፈለገው ክፍል *
                 </label>
                 <select
-                  value={targetDeptId}
+                  value={isDepartmentPortalLocked ? activeDepartment : targetDeptId}
+                  disabled={isDepartmentPortalLocked}
                   onChange={(e) => setTargetDeptId(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500] disabled:opacity-75"
                 >
-                  {departmentsList.map((dept) => (
+                  {(isDepartmentPortalLocked
+                    ? departmentsList.filter((d) => d.id === activeDepartment)
+                    : departmentsList
+                  ).map((dept) => (
                     <option key={dept.id} value={dept.id}>
                       {dept.titleAmharic}
                     </option>

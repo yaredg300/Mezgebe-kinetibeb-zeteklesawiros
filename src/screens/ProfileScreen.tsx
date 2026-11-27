@@ -26,15 +26,13 @@ import {
   Layers,
   ChevronRight,
   ClipboardList,
-  Info,
   Calendar,
   HardDrive,
   Users,
   Shield,
   Phone,
   CheckCircle2,
-  AlertCircle,
-  ExternalLink,
+  Briefcase,
 } from 'lucide-react';
 
 interface ProfileScreenProps {
@@ -47,6 +45,7 @@ interface ProfileScreenProps {
   onNavigateToLogin?: () => void;
   onOpenDepartmentsModal?: () => void;
   onNavigateToDepartmentGateway?: () => void;
+  onOpenWorkspace?: () => void;
 }
 
 export const ProfileScreen: React.FC<ProfileScreenProps> = ({
@@ -54,10 +53,9 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   onNavigateToReviewerQueue,
   onNavigateToCreateWork,
   onNavigateToEvents,
-  onOpenChurchInfo,
   onSwitchDivision,
   onNavigateToLogin,
-  onOpenDepartmentsModal,
+  onOpenWorkspace,
 }) => {
   const {
     currentUser,
@@ -78,7 +76,9 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     activeDepartment,
     setActiveDepartment,
     activeMembership,
+    scheduleAssignments,
     isSuperAdmin,
+    isDepartmentPortalLocked,
     canApproveDeptMembers,
     canSwitchDepartments,
     isGoogleDriveConnected,
@@ -92,30 +92,56 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   const [driveNotice, setDriveNotice] = useState<string | null>(null);
   const [isConnectingDrive, setIsConnectingDrive] = useState<boolean>(false);
 
-  const visibleDepartments = isSuperAdmin
-    ? departmentsList
-    : approvedDepartmentsList.length > 0
-      ? approvedDepartmentsList
-      : departmentsList.filter((d) => d.id === activeDepartment);
+  const isEhudActive = activeDepartment === 'ehud_merha_gibir';
+  const allowCrossDeptSwitch = !isDepartmentPortalLocked && (isSuperAdmin || canSwitchDepartments);
+
+  const visibleDepartments = isDepartmentPortalLocked
+    ? departmentsList.filter((d) => d.id === activeDepartment)
+    : isSuperAdmin
+      ? departmentsList
+      : approvedDepartmentsList.length > 0
+        ? approvedDepartmentsList
+        : departmentsList.filter((d) => d.id === activeDepartment);
 
   const effectiveDeptProfile = visibleDepartments.some((d) => d.id === selectedDeptProfile)
     ? selectedDeptProfile
     : visibleDepartments[0]?.id || activeDepartment;
 
-  // Bookmarked works
-  const bookmarkedWorks = works.filter((w) => w.isBookmarked);
+  const matchesVisibleDepartment = (w: WorkItem) => {
+    if (isSuperAdmin && !isDepartmentPortalLocked) return true;
+    return w.departmentId ? w.departmentId === activeDepartment : activeDepartment === 'kinetibeb';
+  };
 
-  // User's submissions (match fullName or writerName)
+  // Bookmarked works (scoped to active department when isolated)
+  const bookmarkedWorks = works.filter((w) => w.isBookmarked && matchesVisibleDepartment(w));
+
+  // User's submissions (match fullName or writerName, scoped to active department when isolated)
   const mySubmissions = works.filter(
     (w) =>
-      w.writerName.toLowerCase().includes(currentUser.fullName.toLowerCase()) ||
-      currentUser.fullName.toLowerCase().includes(w.writerName.toLowerCase())
+      matchesVisibleDepartment(w) &&
+      (w.writerName.toLowerCase().includes(currentUser.fullName.toLowerCase()) ||
+        currentUser.fullName.toLowerCase().includes(w.writerName.toLowerCase()))
   );
 
-  // Reviewer queue count (under review or revision requested)
-  const pendingCount = works.filter(
-    (w) => w.status === 'UNDER_REVIEW' || w.status === 'REVISION_REQUESTED'
-  ).length;
+  // Reviewer queue count (scoped to active department when isolated)
+  const pendingCount = works.filter((w) => {
+    const matchesDept = matchesVisibleDepartment(w);
+    return matchesDept && (w.status === 'UNDER_REVIEW' || w.status === 'REVISION_REQUESTED');
+  }).length;
+
+  // Ehud schedule assignments summary for the signed-in user
+  const myEhudAssignments = scheduleAssignments.filter((t) => {
+    if (t.departmentId !== 'ehud_merha_gibir') return false;
+    const uid = firebaseUser?.uid || currentUser.id;
+    return (
+      t.assignedMemberIds.includes(uid) ||
+      t.assignedMemberIds.includes(currentUser.id) ||
+      t.responsibleLeadId === uid ||
+      t.responsibleLeadId === currentUser.id
+    );
+  });
+  const activeEhudTasksCount = myEhudAssignments.filter((t) => t.status !== 'COMPLETED').length;
+  const completedEhudTasksCount = myEhudAssignments.filter((t) => t.status === 'COMPLETED').length;
 
   const canReview = [
     'REVIEWER',
@@ -175,7 +201,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     try {
       const token = await connectGoogleDrive();
       if (token) {
-        setDriveNotice('Google Drive በተሳካ ሁኔታ ተገናኝቷል! የኪነጥበብ ስራዎችን ወደ Drive ማመሳከር ይችላሉ።');
+        setDriveNotice('Google Drive በተሳካ ሁኔታ ተገናኝቷል! የክፍሉን ሰነዶች ወደ Drive ማመሳከር ይችላሉ።');
       } else {
         setDriveNotice('የ Google Drive ግንኙነት አልተጠናቀቀም።');
       }
@@ -255,13 +281,13 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
             </div>
           </div>
 
-          {/* Quick role switcher (Super Admin only) & department switcher (Super Admin or Multi-Dept users) */}
-          {(isSuperAdmin || canSwitchDepartments) && (
+          {/* Quick role switcher (Super Admin only) & department switcher (only when cross-dept switching is allowed) */}
+          {(isSuperAdmin || allowCrossDeptSwitch) && (
             <div className="bg-white/10 backdrop-blur-xs rounded-2xl p-3 border border-white/10 text-xs w-full md:w-auto space-y-2">
               {isSuperAdmin && (
                 <div>
                   <label className="block text-white/70 mb-1 font-medium">
-                    የተጠቃሚ ሚና ቀይር (RBAC):
+                    የተጠቃሚ ሚና (RBAC):
                   </label>
                   <select
                     value={currentUser.role}
@@ -278,7 +304,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                 </div>
               )}
 
-              {(isSuperAdmin || canSwitchDepartments) && (
+              {allowCrossDeptSwitch && (
                 <div>
                   <label className="block text-white/70 mb-1 font-medium">
                     የአገልግሎት ክፍል፦
@@ -330,11 +356,75 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
               {visibleDepartments.length}
             </div>
             <div className="text-[11px] sm:text-xs text-white/70 mt-0.5">
-              {isSuperAdmin ? 'ክፍሎች' : 'የተፈቀደ ክፍል'}
+              {isSuperAdmin && !isDepartmentPortalLocked ? 'ክፍሎች' : 'ንቁ ክፍል'}
             </div>
           </div>
         </div>
       </div>
+
+      {/* Ehud Merha Gibir Member Status & Task Summary */}
+      {isEhudActive && (
+        <div className="mb-8 p-4 md:p-5 rounded-2xl bg-white dark:bg-[#111D30] border-2 border-[#0C4A9E]/30 shadow-sm space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-[#0C4A9E]/10 text-[#0C4A9E] dark:text-[#7FAFFF]">
+                <Briefcase className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="font-serif-ethiopic font-bold text-slate-900 dark:text-slate-100 text-sm sm:text-base">
+                  የእሁድ መርሐ ግብር ክፍል የአገልግሎት ሁኔታ
+                </h2>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  {(activeMembership?.requestedPosition || currentUser.requestedPosition) && (
+                    <span className="px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 text-[#966C00] dark:text-[#FFD54F] font-bold">
+                      {(() => {
+                        const posKey = (activeMembership?.requestedPosition ||
+                          currentUser.requestedPosition)!;
+                        const pos = EHUD_DEPARTMENT_POSITIONS[posKey];
+                        return `${pos.rank}ኛ. ${pos.amharicTitle}`;
+                      })()}
+                    </span>
+                  )}
+                  {(activeMembership?.sundaySchoolId || currentUser.sundaySchoolId) && (
+                    <span className="font-mono font-bold text-[#0C4A9E] dark:text-[#7FAFFF]">
+                      መታወቂያ፦ {activeMembership?.sundaySchoolId || currentUser.sundaySchoolId}
+                    </span>
+                  )}
+                  <span>
+                    • ንቁ ተግባራት፦ <strong>{activeEhudTasksCount}</strong> | የተጠናቀቁ፦{' '}
+                    <strong>{completedEhudTasksCount}</strong>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {onOpenWorkspace && (
+              <button
+                type="button"
+                onClick={onOpenWorkspace}
+                className="px-4 py-2 rounded-xl bg-[#0C4A9E] hover:bg-[#072958] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs cursor-pointer shrink-0"
+              >
+                <span>ወደ የክፍሉ የሥራ ገበታ (Workspace)</span>
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          {activeMembership?.serviceSkills && activeMembership.serviceSkills.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100 dark:border-slate-800 text-[11px]">
+              <span className="font-bold text-slate-500">የአገልግሎት ክህሎቶች፦</span>
+              {activeMembership.serviceSkills.map((sk: string, idx: number) => (
+                <span
+                  key={idx}
+                  className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
+                >
+                  {sk}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Reviewer / Admin banner if applicable */}
       {canReview && (
@@ -345,20 +435,24 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
             </div>
             <div>
               <h2 className="font-serif-ethiopic font-bold text-slate-900 dark:text-slate-100 text-base">
-                የገምጋሚና የአስተዳዳሪ ክፍል (Reviewer Queue)
+                {isEhudActive
+                  ? 'የእሁድ መርሐ ግብር ሰነዶች ግምገማ (Reviewer Queue)'
+                  : 'የገምጋሚና የአስተዳዳሪ ክፍል (Reviewer Queue)'}
               </h2>
               <p className="text-xs text-slate-600 dark:text-slate-400">
-                {pendingCount} ስራዎች ለግምገማ፣ ለማጽደቅ ወይም ለማሻሻያ እየተጠባበቁ ነው።
+                {pendingCount} {isEhudActive ? 'ሰነዶች' : 'ስራዎች'} ለግምገማ፣ ለማጽደቅ ወይም ለማሻሻያ እየተጠባበቁ ነው።
               </p>
             </div>
           </div>
-          <button
-            onClick={onNavigateToReviewerQueue}
-            className="w-full sm:w-auto px-5 py-2.5 bg-[#0C4A9E] text-white text-xs font-bold rounded-xl shadow-md flex items-center justify-center gap-2 hover:bg-[#072958] transition-all shrink-0 cursor-pointer"
-          >
-            ወደ ግምገማ ሰሌዳ ሂድ
-            <ChevronRight className="w-4 h-4" />
-          </button>
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            <button
+              onClick={onNavigateToReviewerQueue}
+              className="flex-1 sm:flex-initial px-5 py-2.5 bg-[#0C4A9E] text-white text-xs font-bold rounded-xl shadow-md flex items-center justify-center gap-2 hover:bg-[#072958] transition-all shrink-0 cursor-pointer"
+            >
+              ወደ ግምገማ ሰሌዳ ሂድ
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -370,129 +464,127 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
         </div>
       )}
 
-      {/* Quick Actions Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
+      {/* Quick Actions Grid (Compacted) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-6">
         <button
           onClick={onNavigateToCreateWork}
-          className="p-4 rounded-2xl bg-white dark:bg-[#111D30] border border-[#B88500]/20 shadow-xs hover:border-[#B88500] transition-all text-left flex flex-col justify-between cursor-pointer"
+          className="p-3 rounded-xl bg-white dark:bg-[#111D30] border border-[#B88500]/20 shadow-xs hover:border-[#B88500] transition-all text-left flex flex-col justify-between cursor-pointer"
         >
-          <div className="p-2.5 rounded-xl bg-[#B88500]/10 text-[#B88500] w-fit mb-2">
-            <FileText className="w-5 h-5" />
+          <div className="p-2 rounded-lg bg-[#B88500]/10 text-[#B88500] w-fit mb-1.5">
+            <FileText className="w-4 h-4" />
           </div>
           <div>
-            <div className="font-semibold text-xs md:text-sm text-slate-900 dark:text-slate-100">
-              አዲስ ስራ መዝግብ
+            <div className="font-bold text-xs text-slate-900 dark:text-slate-100">
+              {isEhudActive ? 'አዲስ ሰነድ' : 'አዲስ ስራ'}
             </div>
-            <div className="text-[11px] text-slate-500 dark:text-slate-400">
-              ግጥም፣ ጽሁፍ፣ ስክሪፕት...
+            <div className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-1">
+              {isEhudActive ? 'የዕለት ሉህና ቃለ-ጉባኤ' : 'ግጥም፣ ጽሁፍ፣ ስክሪፕት'}
             </div>
           </div>
         </button>
 
         <button
           onClick={onNavigateToEvents}
-          className="p-4 rounded-2xl bg-white dark:bg-[#111D30] border border-[#B88500]/20 shadow-xs hover:border-[#B88500] transition-all text-left flex flex-col justify-between cursor-pointer"
+          className="p-3 rounded-xl bg-white dark:bg-[#111D30] border border-[#B88500]/20 shadow-xs hover:border-[#B88500] transition-all text-left flex flex-col justify-between cursor-pointer"
         >
-          <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 w-fit mb-2">
-            <Calendar className="w-5 h-5" />
+          <div className="p-2 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 w-fit mb-1.5">
+            <Calendar className="w-4 h-4" />
           </div>
           <div>
-            <div className="font-semibold text-xs md:text-sm text-slate-900 dark:text-slate-100">
+            <div className="font-bold text-xs text-slate-900 dark:text-slate-100">
               መርሐ ግብሮች
             </div>
-            <div className="text-[11px] text-slate-500 dark:text-slate-400">
-              የበዓላትና ዝግጅቶች ቀን መቁጠሪያ
+            <div className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-1">
+              የበዓላትና ሳምንታዊ ቀን መቁጠሪያ
             </div>
           </div>
         </button>
 
         <button
           onClick={() => setActiveTab('departments')}
-          className="p-4 rounded-2xl bg-white dark:bg-[#111D30] border border-[#B88500]/20 shadow-xs hover:border-[#B88500] transition-all text-left flex flex-col justify-between cursor-pointer"
+          className="p-3 rounded-xl bg-white dark:bg-[#111D30] border border-[#B88500]/20 shadow-xs hover:border-[#B88500] transition-all text-left flex flex-col justify-between cursor-pointer"
         >
-          <div className="p-2.5 rounded-xl bg-amber-500/10 text-[#B88500] dark:text-[#FFD54F] w-fit mb-2">
-            <Users className="w-5 h-5" />
+          <div className="p-2 rounded-lg bg-amber-500/10 text-[#B88500] dark:text-[#FFD54F] w-fit mb-1.5">
+            <Users className="w-4 h-4" />
           </div>
           <div>
-            <div className="font-semibold text-xs md:text-sm text-slate-900 dark:text-slate-100">
-              {isSuperAdmin || canSwitchDepartments ? 'የክፍላት መገለጫዎች' : 'የክፍሉ መገለጫ'}
+            <div className="font-bold text-xs text-slate-900 dark:text-slate-100">
+              {allowCrossDeptSwitch ? 'የክፍላት መገለጫ' : 'የክፍሉ መገለጫ'}
             </div>
-            <div className="text-[11px] text-slate-500 dark:text-slate-400">
-              {isSuperAdmin || canSwitchDepartments
-                ? 'የተፈቀዱ ክፍሎች አባላትና ሃላፊዎች'
-                : `${currentDeptInfo?.shortTitleAmharic || 'የክፍሉ'} አባላትና ሃላፊዎች`}
+            <div className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-1">
+              {currentDeptInfo?.shortTitleAmharic || 'አባላትና ሃላፊዎች'}
             </div>
           </div>
         </button>
 
         <button
           onClick={toggleThemeMode}
-          className="p-4 rounded-2xl bg-white dark:bg-[#111D30] border border-[#B88500]/20 shadow-xs hover:border-[#B88500] transition-all text-left flex flex-col justify-between cursor-pointer"
+          className="p-3 rounded-xl bg-white dark:bg-[#111D30] border border-[#B88500]/20 shadow-xs hover:border-[#B88500] transition-all text-left flex flex-col justify-between cursor-pointer"
         >
-          <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 w-fit mb-2">
-            {themeMode === 'DARK' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+          <div className="p-2 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 w-fit mb-1.5">
+            {themeMode === 'DARK' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </div>
           <div>
-            <div className="font-semibold text-xs md:text-sm text-slate-900 dark:text-slate-100">
-              {themeMode === 'DARK' ? 'ቀን ሞድ (Light)' : 'ምሽት ሞድ (Dark)'}
+            <div className="font-bold text-xs text-slate-900 dark:text-slate-100">
+              {themeMode === 'DARK' ? 'ቀን ሞድ' : 'ምሽት ሞድ'}
             </div>
-            <div className="text-[11px] text-slate-500 dark:text-slate-400">
+            <div className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-1">
               የገጽ እይታ ቀለም
             </div>
           </div>
         </button>
       </div>
 
-      <HaragDivider className="my-6" />
+      <HaragDivider className="my-5" />
 
       {/* Tabs: Bookmarks vs Submissions vs Department Profiles vs Google Drive */}
-      <div className="flex items-center gap-2 sm:gap-4 border-b border-[#B88500]/20 mb-6 overflow-x-auto scrollbar-none pb-1">
+      <div className="flex items-center gap-3 sm:gap-5 border-b border-[#B88500]/20 mb-5 overflow-x-auto scrollbar-none pb-0.5">
         <button
           onClick={() => setActiveTab('bookmarks')}
-          className={`pb-3 text-xs sm:text-sm font-semibold transition-all shrink-0 relative flex items-center gap-1.5 cursor-pointer ${
+          className={`pb-2.5 text-xs font-semibold transition-all shrink-0 relative flex items-center gap-1.5 cursor-pointer ${
             activeTab === 'bookmarks'
               ? 'text-[#0C4A9E] dark:text-[#FFD54F] border-b-2 border-[#B88500]'
               : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
           }`}
         >
-          <Bookmark className="w-4 h-4" />
-          የተቀመጡ ስራዎች ({bookmarkedWorks.length})
+          <Bookmark className="w-3.5 h-3.5" />
+          የተቀመጡ ({bookmarkedWorks.length})
         </button>
 
         <button
           onClick={() => setActiveTab('submissions')}
-          className={`pb-3 text-xs sm:text-sm font-semibold transition-all shrink-0 relative flex items-center gap-1.5 cursor-pointer ${
+          className={`pb-2.5 text-xs font-semibold transition-all shrink-0 relative flex items-center gap-1.5 cursor-pointer ${
             activeTab === 'submissions'
               ? 'text-[#0C4A9E] dark:text-[#FFD54F] border-b-2 border-[#B88500]'
               : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
           }`}
         >
-          <FileText className="w-4 h-4" />
-          ያበረከትኳቸው ስራዎች ({mySubmissions.length})
+          <FileText className="w-3.5 h-3.5" />
+          ያበረከትኳቸው ({mySubmissions.length})
         </button>
 
         <button
           onClick={() => setActiveTab('departments')}
-          className={`pb-3 text-xs sm:text-sm font-semibold transition-all shrink-0 relative flex items-center gap-1.5 cursor-pointer ${
+          className={`pb-2.5 text-xs font-semibold transition-all shrink-0 relative flex items-center gap-1.5 cursor-pointer ${
             activeTab === 'departments'
               ? 'text-[#0C4A9E] dark:text-[#FFD54F] border-b-2 border-[#B88500]'
               : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
           }`}
         >
-          <Users className="w-4 h-4" />
-          የክፍላት መገለጫዎችና አገልጋዮች
+          <Users className="w-3.5 h-3.5" />
+          {allowCrossDeptSwitch ? 'ክፍላትና አገልጋዮች' : 'የክፍሉ አገልጋዮች'}
         </button>
 
         <button
           onClick={() => setActiveTab('drive')}
-          className={`pb-3 text-xs sm:text-sm font-semibold transition-all shrink-0 relative flex items-center gap-1.5 cursor-pointer ${
+          className={`pb-2.5 text-xs font-semibold transition-all shrink-0 relative flex items-center gap-1.5 cursor-pointer ${
             activeTab === 'drive'
               ? 'text-[#0C4A9E] dark:text-[#FFD54F] border-b-2 border-[#B88500]'
               : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
           }`}
         >
-          <HardDrive className="w-4 h-4" />
-          Google Drive ማመሳሰያ
+          <HardDrive className="w-3.5 h-3.5" />
+          Drive ማመሳሰያ
           {isGoogleDriveConnected && (
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
           )}
@@ -544,13 +636,15 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
             <div className="text-center py-12 px-4 rounded-2xl bg-white/40 dark:bg-[#111D30]/40 border border-dashed border-[#B88500]/30">
               <FileText className="w-10 h-10 mx-auto text-[#B88500]/50 mb-2" />
               <p className="text-slate-600 dark:text-slate-400 text-sm mb-3">
-                እስካሁን ያበረከቱት ስራ የለም። አዲስ ግጥም፣ ጽሁፍ ወይም ስክሪፕት መመዝገብ ይችላሉ።
+                {isEhudActive
+                  ? 'እስካሁን ያስገቡት የመርሐ ግብር ሰነድ ወይም ቃለ-ጉባኤ የለም። አዲስ የዕለት ሉህ፣ ቃለ-ጉባኤ ወይም ሪፖርት መመዝገብ ይችላሉ።'
+                  : 'እስካሁን ያበረከቱት ስራ የለም። አዲስ ግጥም፣ ጽሁፍ ወይም ስክሪፕት መመዝገብ ይችላሉ።'}
               </p>
               <button
                 onClick={onNavigateToCreateWork}
                 className="px-4 py-2 bg-[#0C4A9E] text-white text-xs font-semibold rounded-xl cursor-pointer"
               >
-                አዲስ ስራ አስገባ
+                {isEhudActive ? 'አዲስ የመርሐ ግብር ሰነድ አስገባ' : 'አዲስ ስራ አስገባ'}
               </button>
             </div>
           )}
@@ -560,8 +654,8 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
       {/* Tab 3: Department Profiles & Servants Directory */}
       {activeTab === 'departments' && (
         <div className="space-y-6">
-          {/* Department Selection Pills (shown only when Super Admin or multiple approved departments) */}
-          {(isSuperAdmin || visibleDepartments.length > 1) && (
+          {/* Department Selection Pills (shown only when cross-dept switching is allowed) */}
+          {allowCrossDeptSwitch && visibleDepartments.length > 1 && (
             <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
               {visibleDepartments.map((dept) => {
                 const isSelected = effectiveDeptProfile === dept.id;
@@ -683,7 +777,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                     <span>የክፍሉ መርሐ-ግብራት ({deptEvents.length})</span>
                   </button>
 
-                  {(isSuperAdmin || canSwitchDepartments) && (
+                  {allowCrossDeptSwitch && (
                     <button
                       type="button"
                       onClick={() => {
@@ -793,7 +887,9 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                     Google Drive ማህደር ማመሳሰያ
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    የተክለ ሣዊሮስ ሰንበት ትምህርት ቤት የኪነጥበብ ስራዎችን በ Google Drive ላይ ያስቀምጡና ያመሳክሩ
+                    {isEhudActive
+                      ? 'የእሁድ መርሐ ግብር ሉሆችን፣ ቃለ-ጉባኤዎችን እና ዓመታዊ ዕቅዶችን በ Google Drive ላይ ያስቀምጡና ያመሳክሩ'
+                      : 'የተክለ ሣዊሮስ ሰንበት ትምህርት ቤት የክፍሉን ሰነዶች በ Google Drive ላይ ያስቀምጡና ያመሳክሩ'}
                   </p>
                 </div>
               </div>
@@ -812,8 +908,10 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 
             <div className="py-4 space-y-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
               <p>
-                በዚህ መዝገብ ውስጥ ያሉትን የኪነጥበብ፣ የስነ-ጽሁፍ፣ የመነባንብና የቴአትር ሰነዶች በ Google Drive
-                ላይ በተፈጠረው <strong>«መዝገበ ኪነጥበብ - ተክለ ሣዊሮስ ሰ/ት/ቤት»</strong> ማህደር ውስጥ በ PDF እና በፅሁፍ
+                {isEhudActive
+                  ? 'በዚህ መዝገብ ውስጥ ያሉትን የእሁድ መርሐ ግብር ዕቅዶች፣ የዕለት ሉሆች፣ ቃለ-ጉባኤዎች እና ሳምንታዊ ሪፖርቶች በ Google Drive ላይ በተፈጠረው '
+                  : 'በዚህ መዝገብ ውስጥ ያሉትን የክፍሉን ኦፊሴላዊ ሰነዶች በ Google Drive ላይ በተፈጠረው '}
+                <strong>«መዝገበ ኪነጥበብ - ተክለ ሣዊሮስ ሰ/ት/ቤት»</strong> ማህደር ውስጥ በ PDF እና በፅሁፍ
                 ቅርጸት ማስቀመጥ እንዲሁም ከ Drive በቀጥታ ወደ መዝገቡ ማስመጣት ይችላሉ።
               </p>
 

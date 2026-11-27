@@ -3,14 +3,25 @@ import { Send, FileUp, Sparkles, CheckCircle2, FileText, X, AlertCircle, Loader2
 import { useArchive } from '../context/ArchiveContext';
 import { SundaySchoolDivision, DIVISIONS, SundaySchoolDepartment } from '../types';
 import { AppHeader } from '../components/AppHeader';
-import { ManuscriptBox, HaragDivider } from '../components/Ornaments';
+import { ManuscriptBox } from '../components/Ornaments';
 import { getDepartmentCategories } from '../data/departmentCategories';
 
-const SAMPLE_PRESETS = [
+interface WorkPreset {
+  label: string;
+  title: string;
+  category: string;
+  division: SundaySchoolDivision;
+  excerpt: string;
+  content: string;
+  tags: string;
+}
+
+const KINETIBEB_SAMPLE_PRESETS: WorkPreset[] = [
   {
+    label: 'ናሙና 1 (ግጥም)',
     title: 'የቅዱሳን አበው ፈለግ እና መንፈሳዊ ተጋድሎ',
     category: 'poetry',
-    division: 'youth' as SundaySchoolDivision,
+    division: 'youth',
     excerpt: 'በጽናት የተመላው የኦርቶዶክሳዊት ቤተክርስቲያን ቅኔ እና የዜማ ድርሰት...',
     content: `በብርሃን ጎዳና በጽናት ሲጓዙ፣
 የእምነትን አርማ በልባቸው ይዘው፤
@@ -22,9 +33,10 @@ const SAMPLE_PRESETS = [
     tags: 'ግጥም, ቅኔ, ጽናት, አበው',
   },
   {
+    label: 'ናሙና 2 (ተውኔት)',
     title: 'የሕፃናት የሰናፍጭ ቅንጣት እምነት ተውኔት',
     category: 'theater',
-    division: 'children' as SundaySchoolDivision,
+    division: 'children',
     excerpt: 'እምነት እንደ ሰናፍጭ ቅንጣት ታህል ቢኖረን ተራራውን መንቀል እንችላለን የሚለው የሕፃናት ድራማ...',
     content: `ትዕይንት ፩፦ በገሊላ ሜዳ
 ገጸ-ባሕሪያት፦ ሳሙኤል (ሕፃን)፣ መምህሩ፣ የሰንበት ት/ቤት ልጆች
@@ -38,6 +50,61 @@ const SAMPLE_PRESETS = [
   },
 ];
 
+const EHUD_SAMPLE_PRESETS: WorkPreset[] = [
+  {
+    label: 'የዕለት መርሐ ግብር ሉህ',
+    title: 'የእሁድ ሳምንታዊ የዕለት መርሐ ግብር ሉህ — 2019 ዓ.ም.',
+    category: 'daily_plan_sheets',
+    division: 'youth',
+    excerpt: 'የእሁድ ዕለት ዝርዝር የደቂቃ ክፍፍል፣ የጸሎት መሪ፣ የትምህርት ርዕስና የተረኛ አስተባባሪ ሉህ።',
+    content: `ቀን፦ ________ 2019 ዓ.ም.
+ሰዓት፦ ከቀኑ 7:30 – 9:30
+ተረኛ ምድብ፦ ________
+የመርሐ ግብሩ መሪ፦ ________
+
+1. 7:30 – 7:40 | መግቢያ ጸሎትና ንባበ ስንክሳር
+2. 7:40 – 8:00 | የእለቱ መዝሙርና ኅብረት
+3. 8:00 – 8:45 | ቃለ እግዚአብሔር (መምህር፦ ________)
+4. 8:45 – 9:10 | ልዩ የመድረክ ክፍለ-ጊዜ / ውይይት
+5. 9:10 – 9:30 | ማስታወቂያ፣ የሰላምታ ጊዜና የማጠቃለያ ጸሎት`,
+    tags: 'የዕለት ሉህ, እሁድ, መርሐ ግብር',
+  },
+  {
+    label: 'የመርሐ ግብር ቃለ-ጉባኤ',
+    title: 'የእሁድ መርሐ ግብር አስተባባሪዎች ቃለ-ጉባኤ',
+    category: 'program_minutes',
+    division: 'youth',
+    excerpt: 'የሳምንቱ መርሐ ግብር አፈጻጸም ግምገማ፣ የተነሱ ሃሳቦችና የቀጣይ ሳምንት የድርጊት መርሐ ግብር።',
+    content: `የስብሰባ ቀን፦ ________ 2019 ዓ.ም.
+ተገኚዎች፦ የእሁድ መርሐ ግብር ጽ/ቤት እና የተረኛ ምድብ አስተባባሪዎች
+
+ዋና ዋና አጀንዳዎች፦
+1. ያለፈው እሁድ መርሐ ግብር የሰዓት አከባበርና የተሳታፊዎች ብዛት ግምገማ
+2. ለቀጣዩ እሁድ የአዳራሽ ዝግጅት፣ የድምፅ መሣሪያና የመምህር ማረጋገጫ
+3. የተወሰኑ ውሳኔዎችና ኃላፊነት የተሰጣቸው አገልጋዮች
+
+ያዘጋጀው ጸሐፊ፦ ________`,
+    tags: 'ቃለ-ጉባኤ, ግምገማ, ውሳኔ',
+  },
+  {
+    label: 'ሳምንታዊ አፈጻጸም ሪፖርት',
+    title: 'ሳምንታዊ የእሁድ መርሐ ግብር አፈጻጸም ሪፖርት',
+    category: 'weekly_timetables',
+    division: 'intermediates',
+    excerpt: 'የሳምንቱ የተሳታፊዎች ቆጠራ፣ የሰዓት አጠባበቅ፣ ጥንካሬዎችና የሚሻሻሉ ነጥቦች ሪፖርት።',
+    content: `የሪፖርቱ ክፍለ-ጊዜ፦ ________ 2019 ዓ.ም.
+የተሳታፊዎች ብዛት፦ ወንድ ___ | ሴት ___ | ጠቅላላ ___
+መርሐ ግብሩ የተጀመረበት ሰዓት፦ ___ | የተጠናቀቀበት፦ ___
+
+ጥንካሬዎች፦
+- ዝግጅቱ በተያዘለት ሰዓት መጀመሩ እና የተማሪዎች ንቁ ተሳትፎ
+
+መሻሻል ያለባቸው ነጥቦች፦
+- የቅድመ-ዝግጅት ቁሳቁሶች ከ30 ደቂቃ በፊት መሟላታቸውን ማረጋገጥ`,
+    tags: 'ሪፖርት, አፈጻጸም, ክትትል',
+  },
+];
+
 export const CreateWorkScreen: React.FC<{
   onWorkCreated: (workId: string) => void;
   onBackClick: () => void;
@@ -45,7 +112,6 @@ export const CreateWorkScreen: React.FC<{
   onNavigateToLogin?: () => void;
 }> = ({ onWorkCreated, onBackClick, editWorkId, onNavigateToLogin }) => {
   const {
-    categories,
     selectedDivision,
     currentUser,
     firebaseUser,
@@ -54,26 +120,46 @@ export const CreateWorkScreen: React.FC<{
     updateWork,
     works,
     departmentsList,
+    approvedDepartmentsList,
+    canSwitchDepartments,
+    isSuperAdmin,
+    isDepartmentPortalLocked,
     activeDepartment,
   } = useArchive();
 
   const existingWork = editWorkId ? works.find((w) => w.id === editWorkId) : null;
+  const initialDeptId: SundaySchoolDepartment =
+    existingWork?.departmentId || activeDepartment || 'kinetibeb';
+  const initialCategories = getDepartmentCategories(initialDeptId);
 
+  const [departmentId, setDepartmentId] = useState<SundaySchoolDepartment>(initialDeptId);
   const [title, setTitle] = useState(existingWork?.title || '');
   const [writerName, setWriterName] = useState(existingWork?.writerName || currentUser.fullName);
-  const [categoryId, setCategoryId] = useState(existingWork?.categoryId || 'poetry');
+  const [categoryId, setCategoryId] = useState(
+    existingWork?.categoryId || initialCategories[0]?.id || 'poetry'
+  );
   const [division, setDivision] = useState<SundaySchoolDivision>(
     existingWork?.division || selectedDivision
   );
-  const [departmentId, setDepartmentId] = useState<SundaySchoolDepartment>(
-    existingWork?.departmentId || activeDepartment || 'kinetibeb'
-  );
+
+  const selectableDepartments = isDepartmentPortalLocked
+    ? departmentsList.filter((d) => d.id === activeDepartment)
+    : !isSuperAdmin && !canSwitchDepartments && firebaseUser && approvedDepartmentsList.length > 0
+      ? approvedDepartmentsList
+      : departmentsList;
 
   const availableCategories = getDepartmentCategories(departmentId);
+  const isEhudMode = departmentId === 'ehud_merha_gibir';
+  const activePresets = isEhudMode ? EHUD_SAMPLE_PRESETS : KINETIBEB_SAMPLE_PRESETS;
 
   const [content, setContent] = useState(existingWork?.content || '');
   const [excerpt, setExcerpt] = useState(existingWork?.excerpt || '');
-  const [tagText, setTagText] = useState(existingWork?.tags?.join(', ') || 'መንፈሳዊ, ተክለ ሣዊሮስ');
+  const [tagText, setTagText] = useState(
+    existingWork?.tags?.join(', ') ||
+      (initialDeptId === 'ehud_merha_gibir'
+        ? 'እሁድ, መርሐ ግብር, ተክለ ሣዊሮስ'
+        : 'መንፈሳዊ, ተክለ ሣዊሮስ')
+  );
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [attachedPdfName, setAttachedPdfName] = useState<string | null>(
     existingWork?.pdfFileName || null
@@ -85,7 +171,7 @@ export const CreateWorkScreen: React.FC<{
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [successId, setSuccessId] = useState<string | null>(null);
 
-  const handleApplyPreset = (preset: (typeof SAMPLE_PRESETS)[0]) => {
+  const handleApplyPreset = (preset: WorkPreset) => {
     setTitle(preset.title);
     setCategoryId(preset.category);
     setDivision(preset.division);
@@ -171,11 +257,19 @@ export const CreateWorkScreen: React.FC<{
   return (
     <div className="min-h-screen pb-24 md:pb-12 bg-[#F9FAFD] dark:bg-[#0B1320]">
       <AppHeader
-        title={existingWork ? 'ስራውን አሻሽል (Edit & Resubmit)' : 'አዲስ ስራ አቅርብ'}
+        title={
+          existingWork
+            ? 'ሰነዱን አሻሽል (Edit & Resubmit)'
+            : isEhudMode
+              ? 'አዲስ የመርሐ ግብር ሰነድ አቅርብ'
+              : 'አዲስ ስራ አቅርብ'
+        }
         subtitle={
           existingWork
             ? `«${existingWork.title}» ማሻሻያ ማቅረቢያ`
-            : 'የፈጠራ ስራዎችን ወደ መዝገቡ ማስገቢያ'
+            : isEhudMode
+              ? 'የዕለት ሉሆች፣ ቃለ-ጉባኤዎችና የዕቅድ ሰነዶች ማስገቢያ'
+              : 'የፈጠራ ስራዎችን ወደ መዝገቡ ማስገቢያ'
         }
         showBack={true}
         onBackClick={onBackClick}
@@ -189,10 +283,10 @@ export const CreateWorkScreen: React.FC<{
               <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
               <div className="flex-1">
                 <h4 className="text-xs font-bold text-amber-900 dark:text-amber-200">
-                  ስራዎችን ለማቅረብ መለያ ያስፈልጋል
+                  ሰነዶችን ለማቅረብ መለያ ያስፈልጋል
                 </h4>
                 <p className="text-xs text-slate-700 dark:text-slate-300 mt-1 leading-relaxed">
-                  ስራዎችዎ በቤተክርስቲያኑ ቋሚ መዝገብና በ Google Cloud Storage በደህንነት እንዲቀመጡ እባክዎ መጀመሪያ ይግቡ።
+                  ሰነዶችዎ በቤተክርስቲያኑ ቋሚ መዝገብና በ Google Cloud Storage በደህንነት እንዲቀመጡ እባክዎ መጀመሪያ ይግቡ።
                 </p>
                 <div className="flex flex-wrap items-center gap-2.5 mt-3">
                   <button
@@ -222,31 +316,37 @@ export const CreateWorkScreen: React.FC<{
           <div className="flex items-center gap-2 mb-1.5 text-[#0C4A9E] dark:text-[#7FAFFF]">
             <Sparkles className="w-4 h-4 text-[#B88500]" />
             <h3 className="text-sm font-bold font-serif-ethiopic">
-              {existingWork ? 'የስራ ማሻሻያ መመሪያ' : 'የስራ ማቅረቢያ መመሪያ'}
+              {existingWork
+                ? 'የሰነድ ማሻሻያ መመሪያ'
+                : isEhudMode
+                  ? 'የእሁድ መርሐ ግብር ሰነድ ማቅረቢያ መመሪያ'
+                  : 'የስራ ማቅረቢያ መመሪያ'}
             </h3>
           </div>
           <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-serif-ethiopic">
             {existingWork
               ? 'የገምጋሚውን አስተያየት መሰረት በማድረግ ይዘቱን ያሻሽሉ። አዲሱ እትም በቀጥታ ወደ ገምጋሚዎች ወረፋ ይገባል።'
-              : 'የሚያቀርቡት ስራ ለሰንበት ት/ቤቱ የኪነጥበብ ገምጋሚዎች ይላካል። ከተገመገመና ከጸደቀ በኋላ በቋሚነት ወደ መዝገቡ ይገባል። እባክዎ ትክክለኛ የጸሐፊ ስም፣ ይዘትና ምድብ ይምረጡ።'}
+              : isEhudMode
+                ? 'የሚያቀርቡት የዕለት ሉህ፣ ቃለ-ጉባኤ ወይም ሳምንታዊ ሪፖርት ለእሁድ መርሐ ግብር ክፍል አስተባባሪዎች ይላካል። ከጸደቀ በኋላ በቋሚነት ወደ ክፍሉ መዝገብ ይገባል።'
+                : 'የሚያቀርቡት ስራ ለሰንበት ት/ቤቱ ገምጋሚዎች ይላካል። ከተገመገመና ከጸደቀ በኋላ በቋሚነት ወደ መዝገቡ ይገባል። እባክዎ ትክክለኛ የጸሐፊ ስም፣ ይዘትና ምድብ ይምረጡ።'}
           </p>
         </ManuscriptBox>
 
         {/* Quick Sample Presets (Only when creating new) */}
         {!existingWork && (
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs font-bold text-slate-600 dark:text-slate-400">
               ፈጣን ናሙናዎችን ተጠቀም (Quick Template):
             </span>
-            <div className="flex items-center gap-2">
-              {SAMPLE_PRESETS.map((preset, i) => (
+            <div className="flex flex-wrap items-center gap-2">
+              {activePresets.map((preset, i) => (
                 <button
                   key={i}
                   type="button"
                   onClick={() => handleApplyPreset(preset)}
-                  className="px-2.5 py-1 rounded-lg text-xs font-bold bg-[#B88500]/15 hover:bg-[#B88500]/25 text-[#966C00] dark:text-[#FFD54F] border border-[#B88500]/30 transition-colors"
+                  className="px-2.5 py-1 rounded-lg text-xs font-bold bg-[#B88500]/15 hover:bg-[#B88500]/25 text-[#966C00] dark:text-[#FFD54F] border border-[#B88500]/30 transition-colors cursor-pointer"
                 >
-                  ናሙና {i + 1}
+                  {preset.label}
                 </button>
               ))}
             </div>
@@ -258,14 +358,18 @@ export const CreateWorkScreen: React.FC<{
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
-                የሥራው ርዕስ *
+                {isEhudMode ? 'የሰነዱ / የመርሐ ግብሩ ርዕስ *' : 'የሥራው ርዕስ *'}
               </label>
               <input
                 type="text"
                 required
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="ለምሳሌ፡ የብርሃን ማዕበል እና የጽናት ቃል"
+                placeholder={
+                  isEhudMode
+                    ? 'ለምሳሌ፡ የጥር 2 የእሁድ መርሐ ግብር ቃለ-ጉባኤ'
+                    : 'ለምሳሌ፡ የብርሃን ማዕበል እና የጽናት ቃል'
+                }
                 className="w-full px-3.5 py-2.5 text-xs sm:text-sm rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
               />
             </div>
@@ -273,14 +377,14 @@ export const CreateWorkScreen: React.FC<{
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
-                  ደራሲ / ፀሐፊ
+                  {isEhudMode ? 'አዘጋጅ / ጸሐፊ' : 'ደራሲ / ፀሐፊ'}
                 </label>
                 <input
                   type="text"
                   required
                   value={writerName}
                   onChange={(e) => setWriterName(e.target.value)}
-                  placeholder="የደራሲው ስም"
+                  placeholder={isEhudMode ? 'የአዘጋጁ / ጸሐፊው ስም' : 'የደራሲው ስም'}
                   className="w-full px-3.5 py-2 text-xs sm:text-sm rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
                 />
               </div>
@@ -310,6 +414,7 @@ export const CreateWorkScreen: React.FC<{
                 </label>
                 <select
                   value={departmentId}
+                  disabled={(isDepartmentPortalLocked || selectableDepartments.length === 1) && !existingWork}
                   onChange={(e) => {
                     const newDept = e.target.value as SundaySchoolDepartment;
                     setDepartmentId(newDept);
@@ -318,9 +423,9 @@ export const CreateWorkScreen: React.FC<{
                       setCategoryId(newCats[0].id);
                     }
                   }}
-                  className="w-full px-3.5 py-2 text-xs sm:text-sm rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
+                  className="w-full px-3.5 py-2 text-xs sm:text-sm rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500] disabled:opacity-75"
                 >
-                  {departmentsList.map((d) => (
+                  {selectableDepartments.map((d) => (
                     <option key={d.id} value={d.id}>
                       {d.titleAmharic} ({d.badgeLabel})
                     </option>
@@ -361,14 +466,18 @@ export const CreateWorkScreen: React.FC<{
 
             <div>
               <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
-                የሥራው ሙሉ ይዘት (Content) *
+                {isEhudMode ? 'የሰነዱ / የመርሐ ግብሩ ሙሉ ይዘት (Content) *' : 'የሥራው ሙሉ ይዘት (Content) *'}
               </label>
               <textarea
                 rows={8}
                 required
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
-                placeholder="ሙሉውን ግጥም፣ ተውኔት ወይም ስነ-ጽሁፍ እዚህ ይጻፉ..."
+                placeholder={
+                  isEhudMode
+                    ? 'የዕለቱን መርሐ ግብር ዝርዝር፣ ቃለ-ጉባኤ ወይም ሳምንታዊ ሪፖርት እዚህ ይጻፉ...'
+                    : 'ሙሉውን ግጥም፣ ተውኔት ወይም ስነ-ጽሁፍ እዚህ ይጻፉ...'
+                }
                 className="w-full px-3.5 py-2.5 text-xs sm:text-sm font-serif-ethiopic rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500] leading-relaxed"
               />
             </div>
@@ -381,7 +490,7 @@ export const CreateWorkScreen: React.FC<{
                 type="text"
                 value={tagText}
                 onChange={(e) => setTagText(e.target.value)}
-                placeholder="ግጥም, ቅኔ, መንፈሳዊ"
+                placeholder={isEhudMode ? 'እሁድ, ቃለ-ጉባኤ, መርሐ ግብር' : 'ግጥም, ቅኔ, መንፈሳዊ'}
                 className="w-full px-3.5 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
               />
             </div>

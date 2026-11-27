@@ -26,12 +26,14 @@ interface DepartmentGatewayScreenProps {
   onSelectKinetibeb: (viewIntro?: boolean) => void;
   onSelectEhudMerhaGibir: () => void;
   onExploreDirectly: (dept: SundaySchoolDepartment) => void;
+  onGoToLogin?: (dept?: SundaySchoolDepartment) => void;
 }
 
 export const DepartmentGatewayScreen: React.FC<DepartmentGatewayScreenProps> = ({
   onSelectKinetibeb,
   onSelectEhudMerhaGibir,
   onExploreDirectly,
+  onGoToLogin,
 }) => {
   const { setActiveDepartment, departmentsList, addDepartment } = useArchive();
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
@@ -234,7 +236,7 @@ export const DepartmentGatewayScreen: React.FC<DepartmentGatewayScreenProps> = (
               </p>
 
               <p className="text-xs sm:text-sm text-slate-700 leading-relaxed font-serif-ethiopic mt-3">
-                የ2019 ዓ.ም የ፶፩ ሳምንታት ዓመታዊና ወርሃዊ መርሐ ግብራት፣ የሕፃናትና ማዕከላውያን የዕለት ዕቅዶች፣ የመምህራን ድልድልና የትምህርት ፒዲኤፍ (PDF) ማጣቀሻዎች።
+                የ2019 ዓ.ም የ፶፩ ሳምንታት ዓመታዊና ወርሃዊ መርሐ ግብራት፣ የወጣቶች፣ የማዕከላውያንና የሕፃናት ፳፰ የዕለት ሰሌዳዎች፣ ፲ የአዘጋጅ ምድቦች፣ ፲፩ ተግባራዊ ዒላማዎች እና ፫ የፒዲኤፍ (PDF) ጥቅሎች።
               </p>
 
               {/* Badges / Stats */}
@@ -243,13 +245,13 @@ export const DepartmentGatewayScreen: React.FC<DepartmentGatewayScreenProps> = (
                   ፶፩ ሳምንታት
                 </span>
                 <span className="text-[10px] sm:text-[11px] font-semibold px-2 py-0.5 rounded-md bg-blue-50 text-[#0C4A9E] border border-blue-200">
-                  የሕፃናትና ማዕከላውያን ዕቅድ
+                  ሕፃናት፣ ማዕከላውያንና ወጣቶች
                 </span>
                 <span className="text-[10px] sm:text-[11px] font-semibold px-2 py-0.5 rounded-md bg-blue-50 text-[#0C4A9E] border border-blue-200">
-                  ፪ የፒዲኤፍ ጥቅሎች
+                  ፫ የፒዲኤፍ ጥቅሎች (58 ገጽ)
                 </span>
                 <span className="text-[10px] sm:text-[11px] font-semibold px-2 py-0.5 rounded-md bg-blue-50 text-[#0C4A9E] border border-blue-200">
-                  የዕለት ሰሌዳና ክትትል
+                  ፲ የአዘጋጅ ምድቦች
                 </span>
               </div>
             </div>
@@ -265,17 +267,32 @@ export const DepartmentGatewayScreen: React.FC<DepartmentGatewayScreenProps> = (
                 <ArrowRight className="w-4 h-4" />
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveDepartment('ehud_merha_gibir');
-                  onSelectEhudMerhaGibir();
-                }}
-                className="py-3 px-3 rounded-xl bg-blue-50 hover:bg-blue-100 text-[#0C4A9E] font-bold text-xs flex items-center justify-center gap-1 border border-blue-300 transition-all"
-                title="የ2019 ዓመታዊና የዕለት ዕቅዶችን ሰሌዳ ይመልከቱ"
-              >
-                <span>የዕቅድ ሰሌዳ</span>
-              </button>
+              {onGoToLogin ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveDepartment('ehud_merha_gibir');
+                    onGoToLogin('ehud_merha_gibir');
+                  }}
+                  className="py-3 px-3 rounded-xl bg-blue-50 hover:bg-blue-100 text-[#0C4A9E] font-bold text-xs flex items-center justify-center gap-1 border border-blue-300 transition-all"
+                  title="በአባልነት ወይም በአስተዳዳሪ መለያ ይግቡ"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>በመለያ ግባ</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveDepartment('ehud_merha_gibir');
+                    onSelectEhudMerhaGibir();
+                  }}
+                  className="py-3 px-3 rounded-xl bg-blue-50 hover:bg-blue-100 text-[#0C4A9E] font-bold text-xs flex items-center justify-center gap-1 border border-blue-300 transition-all"
+                  title="የ2019 ዓመታዊና የዕለት ዕቅዶችን ሰሌዳ ይመልከቱ"
+                >
+                  <span>የዕቅድ ሰሌዳ</span>
+                </button>
+              )}
             </div>
           </div>
         </div>

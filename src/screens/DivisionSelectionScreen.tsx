@@ -10,16 +10,29 @@ export const DivisionSelectionScreen: React.FC<{
   onContinueToLogin: (division: SundaySchoolDivision) => void;
   onExploreAsGuest: (division: SundaySchoolDivision) => void;
 }> = ({ onContinueToLogin, onExploreAsGuest }) => {
-  const { selectedDivision, selectDivision, works } = useArchive();
+  const {
+    selectedDivision,
+    selectDivision,
+    works,
+    activeDepartment,
+    dailyPlanSheets,
+    childrenAnnualPlan,
+    maekelawiyanAnnualPlan,
+    youthAnnualPlan,
+    pdfPackages,
+  } = useArchive();
+
+  const isEhud = activeDepartment === 'ehud_merha_gibir';
 
   const divisionCards: {
     id: SundaySchoolDivision;
     icon: React.FC<{ className?: string }>;
     accentColor: string;
+    sundayTime: string;
   }[] = [
-    { id: 'children', icon: Baby, accentColor: '#F5B800' },
-    { id: 'intermediates', icon: School, accentColor: '#0C4A9E' },
-    { id: 'youth', icon: Users, accentColor: '#8B0000' },
+    { id: 'children', icon: Baby, accentColor: '#F5B800', sundayTime: 'ከጠዋቱ 6:00–8:00' },
+    { id: 'intermediates', icon: School, accentColor: '#0C4A9E', sundayTime: 'ከጠዋቱ 4:00–6:00' },
+    { id: 'youth', icon: Users, accentColor: '#8B0000', sundayTime: 'ከቀኑ 7:30–9:30' },
   ];
 
   return (
@@ -41,7 +54,9 @@ export const DivisionSelectionScreen: React.FC<{
           ተክለ ሳዊሮስ ሰንበት ት/ቤት
         </h1>
         <p className="text-xs font-semibold text-[#966C00] dark:text-[#FFD54F] tracking-wide mt-0.5">
-          መዝገበ ኪነጥበብ እና የእሁድ መርሃ ግብር ክፍል
+          {isEhud
+            ? 'የእሁድ መርሃ ግብር ክፍል • 2019 ዓ.ም. መደበኛ ሰሌዳዎች'
+            : 'መዝገበ ኪነጥበብ እና የእሁድ መርሃ ግብር ክፍል'}
         </p>
 
         <HaragDivider className="my-3 max-w-xs" height={14} />
@@ -55,15 +70,25 @@ export const DivisionSelectionScreen: React.FC<{
           የዕድሜ እርከን (Division) ይምረጡ፦
         </h2>
         <p className="text-xs text-slate-600 dark:text-slate-400 text-center max-w-md mt-1 mb-5">
-          የተመረጠው እርከን ሙሉውን የኪነጥበብ ስራዎች፣ የ2019 ዓ.ም. ዓመታዊ የመርሃ ግብር ሰሌዳና የዕለት ዕቅዶችን ያቀርብልዎታል።
+          {isEhud
+            ? 'የተመረጠው እርከን የ2019 ዓ.ም. ዓመታዊ የእሁድ መርሃ ግብር ሰሌዳ፣ ዝርዝር የደቂቃ መርሃ ግብሮችና ኦፊሴላዊ የፒዲኤፍ (PDF) ዕቅዶችን ያቀርብልዎታል።'
+            : 'የተመረጠው እርከን ሙሉውን የኪነጥበብ ስራዎች፣ የ2019 ዓ.ም. ዓመታዊ የመርሃ ግብር ሰሌዳና የዕለት ዕቅዶችን ያቀርብልዎታል።'}
         </p>
 
         {/* Division Cards */}
         <div className="w-full space-y-3.5 mb-6">
-          {divisionCards.map(({ id, icon: IconComponent, accentColor }) => {
+          {divisionCards.map(({ id, icon: IconComponent, accentColor, sundayTime }) => {
             const info = DIVISIONS[id];
             const isSelected = selectedDivision === id;
-            const count = works.filter((w) => w.division === id).length;
+            const worksCount = works.filter((w) => w.division === id).length;
+            const dailySheetsCount = dailyPlanSheets.filter((s) => s.division === id).length;
+            const annualCount =
+              id === 'children'
+                ? childrenAnnualPlan.length
+                : id === 'intermediates'
+                ? maekelawiyanAnnualPlan.length
+                : youthAnnualPlan.length;
+            const pkg = pdfPackages.find((p) => p.division === id);
 
             return (
               <div
@@ -101,7 +126,7 @@ export const DivisionSelectionScreen: React.FC<{
                         </span>
                       </div>
                       <p className="text-xs text-slate-500 dark:text-slate-400">
-                        {info.subtitleAmharic}
+                        {isEhud ? `የእሁድ መርሃ ግብር ሰዓት፦ ${sundayTime}` : info.subtitleAmharic}
                       </p>
                     </div>
                   </div>
@@ -127,10 +152,12 @@ export const DivisionSelectionScreen: React.FC<{
 
                 <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs">
                   <span className="text-slate-500 dark:text-slate-400">
-                    በመዝገብ ላይ ያሉ ሥራዎች፦
+                    {isEhud ? 'የ2019 ዓ.ም. መርሃ ግብር መረጃ፦' : 'በመዝገብ ላይ ያሉ ሥራዎች፦'}
                   </span>
                   <span className="font-bold text-[#0C4A9E] dark:text-[#7FAFFF]">
-                    {count} ሥራዎች ተመዝግበዋል
+                    {isEhud
+                      ? `${annualCount} ሳምንታት • ${dailySheetsCount} የዕለት ሰሌዳዎች${pkg ? ` • ${pkg.totalPages} ገጽ PDF` : ''}`
+                      : `${worksCount} ሥራዎች ተመዝግበዋል`}
                   </span>
                 </div>
               </div>

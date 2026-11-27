@@ -19,7 +19,16 @@ export const ReviewerQueueScreen: React.FC<{
   onWorkClick: (workId: string) => void;
   onBackClick: () => void;
 }> = ({ onWorkClick, onBackClick }) => {
-  const { works, currentUser, reviewWorkAction, deleteWork } = useArchive();
+  const {
+    works,
+    currentUser,
+    activeDepartment,
+    isSuperAdmin,
+    isDepartmentPortalLocked,
+    departmentsList,
+    reviewWorkAction,
+    deleteWork,
+  } = useArchive();
 
   const [activeTab, setActiveTab] = useState<'pending' | 'approved' | 'all'>('pending');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -31,12 +40,22 @@ export const ReviewerQueueScreen: React.FC<{
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [workToDelete, setWorkToDelete] = useState<WorkItem | null>(null);
 
-  const pendingWorks = works.filter(
+  const isEhud = activeDepartment === 'ehud_merha_gibir';
+  const activeDeptObj = departmentsList.find((d) => d.id === activeDepartment);
+
+  const scopedWorks =
+    isSuperAdmin && !isDepartmentPortalLocked
+      ? works
+      : works.filter((w) =>
+          w.departmentId ? w.departmentId === activeDepartment : activeDepartment === 'kinetibeb'
+        );
+
+  const pendingWorks = scopedWorks.filter(
     (w) => w.status === 'UNDER_REVIEW' || w.status === 'REVISION_REQUESTED'
   );
-  const approvedWorks = works.filter((w) => w.status === 'APPROVED' || w.status === 'PUBLISHED');
+  const approvedWorks = scopedWorks.filter((w) => w.status === 'APPROVED' || w.status === 'PUBLISHED');
 
-  const filteredAllWorks = works.filter((w) => {
+  const filteredAllWorks = scopedWorks.filter((w) => {
     const matchesStatus = statusFilter === 'all' || w.status === statusFilter;
     const q = searchQuery.toLowerCase();
     const matchesSearch =
@@ -91,7 +110,11 @@ export const ReviewerQueueScreen: React.FC<{
             ? 'የአድሚንና የጽሁፎች ማዕከል'
             : 'የግምገማ ወረፋ'
         }
-        subtitle="የቀረቡ፣ የጸደቁና የተመዘገቡ ስራዎች መቆጣጠሪያ"
+        subtitle={
+          isEhud
+            ? 'የቀረቡ የእሁድ መርሐ ግብር ሉሆች፣ ቃለ-ጉባኤዎችና የዕቅድ ሰነዶች መቆጣጠሪያ'
+            : 'የቀረቡ፣ የጸደቁና የተመዘገቡ ሰነዶች መቆጣጠሪያ'
+        }
         showBack={true}
         onBackClick={onBackClick}
       />
@@ -110,10 +133,12 @@ export const ReviewerQueueScreen: React.FC<{
             />
             <div>
               <h3 className="text-sm sm:text-base font-bold font-serif-ethiopic text-[#0C4A9E] dark:text-[#7FAFFF]">
-                የኪነጥበብ ስራዎች አስተዳደርና ግምገማ
+                {isEhud
+                  ? 'የእሁድ መርሐ ግብር ሰነዶች አስተዳደርና ግምገማ'
+                  : `${activeDeptObj?.shortTitleAmharic || 'የክፍሉ'} ሰነዶች አስተዳደርና ግምገማ`}
               </h3>
               <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
-                ተቆጣጣሪ፦ <strong>{currentUser.fullName}</strong> ({currentUser.department})
+                ተቆጣጣሪ፦ <strong>{currentUser.fullName}</strong> ({activeDeptObj?.shortTitleAmharic || currentUser.department})
               </p>
             </div>
           </div>
@@ -159,7 +184,7 @@ export const ReviewerQueueScreen: React.FC<{
                 : 'bg-white dark:bg-[#111D30] border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
             }`}
           >
-            ሁሉም ጽሁፎች ({works.length})
+            {isEhud ? `ሁሉም ሰነዶች (${scopedWorks.length})` : `ሁሉም ጽሁፎች (${scopedWorks.length})`}
           </button>
         </div>
 
@@ -299,7 +324,7 @@ export const ReviewerQueueScreen: React.FC<{
             </div>
 
             <p className="text-xs text-slate-600 dark:text-slate-400 mb-3">
-              ሥራ፦ <strong>{revisionWork.title}</strong> (ደራሲ፦ {revisionWork.writerName})
+              {isEhud ? 'ሰነድ፦' : 'ሥራ፦'} <strong>{revisionWork.title}</strong> ({isEhud ? 'አዘጋጅ፦' : 'ደራሲ፦'} {revisionWork.writerName})
             </p>
 
             <form onSubmit={handleRequestRevision} className="space-y-3">

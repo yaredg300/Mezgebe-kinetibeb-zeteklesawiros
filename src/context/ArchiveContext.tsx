@@ -45,6 +45,7 @@ import {
   ADDITIONAL_DEPARTMENT_MEMBERS,
   ADDITIONAL_DEPARTMENT_EVENTS,
 } from '../data/departmentData';
+import { getAllDepartmentCategories } from '../data/departmentCategories';
 import {
   INITIAL_DEPARTMENT_MEMBERSHIPS,
   INITIAL_SCHEDULE_ASSIGNMENTS,
@@ -919,7 +920,10 @@ interface ArchiveContextType {
   maekelawiyanAnnualPlan: SundayProgramPlanEntry[];
   youthAnnualPlan: SundayProgramPlanEntry[];
   dailyPlanSheets: SundayDailyPlanSheet[];
-  updateDailyPlanSheet: (sheetId: string, updates: Partial<SundayDailyPlanSheet>) => void;
+  updateDailyPlanSheet: (sheetId: string, updates: Partial<SundayDailyPlanSheet>) => Promise<void>;
+  createDailyPlanSheet: (sheet: SundayDailyPlanSheet) => Promise<SundayDailyPlanSheet>;
+  toggleDailyPreProgramItem: (sheetId: string, needItem: string) => Promise<void>;
+  deleteDailyPlanSheet: (sheetId: string) => Promise<void>;
   selectedDivision: SundaySchoolDivision;
   currentUser: UserProfile;
   firebaseUser: FirebaseUser | null;
@@ -1025,6 +1029,7 @@ interface ArchiveContextType {
   scheduleAssignments: ScheduleTaskAssignment[];
   departmentNotifications: DepartmentNotification[];
   isSuperAdmin: boolean;
+  isDepartmentPortalLocked: boolean;
   userMemberships: DepartmentMembership[];
   approvedMemberships: DepartmentMembership[];
   approvedDepartmentsList: DepartmentInfo[];
@@ -1111,11 +1116,7 @@ export const ArchiveContext = createContext<ArchiveContextType | null>(null);
 
 export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [categories] = useState<WorkCategory[]>(INITIAL_CATEGORIES);
-  const [works, setWorks] = useState<WorkItem[]>(INITIAL_WORKS);
-  const [writers] = useState<Writer[]>(INITIAL_WRITERS);
-  const [members, setMembers] = useState<ChurchMember[]>(INITIAL_MEMBERS);
-  const [events, setEvents] = useState<CulturalEvent[]>(INITIAL_EVENTS);
-  const [activeDepartment, setActiveDepartmentState] = useState<SundaySchoolDepartment>(() => {
+  const getInitialActiveDept = (): SundaySchoolDepartment => {
     try {
       const saved = localStorage.getItem('mezgebe_active_dept');
       if (saved) return saved as SundaySchoolDepartment;
@@ -1123,7 +1124,26 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       // ignore
     }
     return 'kinetibeb';
-  });
+  };
+  const [activeDepartment, setActiveDepartmentState] = useState<SundaySchoolDepartment>(getInitialActiveDept);
+  const isDepartmentPortalLocked = activeDepartment === 'ehud_merha_gibir';
+
+  const [works, setWorks] = useState<WorkItem[]>(() =>
+    getInitialActiveDept() === 'ehud_merha_gibir'
+      ? INITIAL_WORKS.filter((w) => w.departmentId === 'ehud_merha_gibir')
+      : INITIAL_WORKS
+  );
+  const [writers] = useState<Writer[]>(INITIAL_WRITERS);
+  const [members, setMembers] = useState<ChurchMember[]>(() =>
+    getInitialActiveDept() === 'ehud_merha_gibir'
+      ? INITIAL_MEMBERS.filter((m) => m.departmentId === 'ehud_merha_gibir')
+      : INITIAL_MEMBERS
+  );
+  const [events, setEvents] = useState<CulturalEvent[]>(() =>
+    getInitialActiveDept() === 'ehud_merha_gibir'
+      ? INITIAL_EVENTS.filter((e) => e.departmentId === 'ehud_merha_gibir')
+      : INITIAL_EVENTS
+  );
 
   const setActiveDepartment = (dept: SundaySchoolDepartment) => {
     // Non-Super-Admin signed-in users with approved memberships cannot switch into unjoined departments
@@ -1146,16 +1166,138 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
-  const [dailyPlanSheets, setDailyPlanSheets] = useState<SundayDailyPlanSheet[]>([
+  const INITIAL_DAILY_PLAN_SHEETS: SundayDailyPlanSheet[] = [
     ...CHILDREN_DAILY_PLANS_2019,
     ...MAEKELAWIYAN_DAILY_PLANS_2019,
     ...YOUTH_DAILY_PLANS_2019,
-  ]);
+  ];
 
-  const updateDailyPlanSheet = (sheetId: string, updates: Partial<SundayDailyPlanSheet>) => {
-    setDailyPlanSheets((prev) =>
-      prev.map((sheet) => (sheet.id === sheetId ? { ...sheet, ...updates } : sheet))
-    );
+  const mergeDailySheets = (
+    base: SundayDailyPlanSheet[],
+    overrides: SundayDailyPlanSheet[]
+  ): SundayDailyPlanSheet[] => {
+    const map = new Map<string, SundayDailyPlanSheet>(base.map((s) => [s.id, s]));
+    for (const ov of overrides) {
+      map.set(ov.id, ov);
+    }
+    return Array.from(map.values());
+  };
+
+  const [dailyPlanSheets, setDailyPlanSheets] = useState<SundayDailyPlanSheet[]>(() => {
+    try {
+      const saved = localStorage.getItem('mezgebe_daily_plan_sheets');
+      if (saved) {
+        const parsed = JSON.parse(saved) as SundayDailyPlanSheet[];
+        if (Array.isArray(parsed)) {
+          return mergeDailySheets(INITIAL_DAILY_PLAN_SHEETS, parsed);
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return INITIAL_DAILY_PLAN_SHEETS;
+  });
+
+  const persistLocalDailySheets = (sheets: SundayDailyPlanSheet[]) => {
+    try {
+      localStorage.setItem('mezgebe_daily_plan_sheets', JSON.stringify(sheets));
+    } catch {
+      // ignore
+    }
+  };
+
+  const updateDailyPlanSheet = async (
+    sheetId: string,
+    updates: Partial<SundayDailyPlanSheet>
+  ): Promise<void> => {
+    const existing = dailyPlanSheets.find((s) => s.id === sheetId);
+    if (!existing) return;
+
+    const mergedSheet: SundayDailyPlanSheet = {
+      ...existing,
+      ...updates,
+      updatedAt: new Date().toISOString(),
+      updatedBy: currentUser.fullName,
+    };
+
+    setDailyPlanSheets((prev) => {
+      const next = prev.map((sheet) => (sheet.id === sheetId ? mergedSheet : sheet));
+      persistLocalDailySheets(next);
+      return next;
+    });
+
+    if (!auth.currentUser) return;
+    try {
+      await setDoc(
+        doc(db, 'sunday_daily_sheets', sheetId),
+        sanitizeFirestorePayload(mergedSheet),
+        { merge: true }
+      );
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `sunday_daily_sheets/${sheetId}`);
+    }
+  };
+
+  const createDailyPlanSheet = async (
+    sheet: SundayDailyPlanSheet
+  ): Promise<SundayDailyPlanSheet> => {
+    const payload: SundayDailyPlanSheet = {
+      ...sheet,
+      updatedAt: new Date().toISOString(),
+      updatedBy: currentUser.fullName,
+    };
+
+    setDailyPlanSheets((prev) => {
+      const next = mergeDailySheets(prev, [payload]);
+      persistLocalDailySheets(next);
+      return next;
+    });
+
+    if (auth.currentUser) {
+      try {
+        await setDoc(
+          doc(db, 'sunday_daily_sheets', payload.id),
+          sanitizeFirestorePayload(payload)
+        );
+      } catch (error) {
+        handleFirestoreError(error, OperationType.CREATE, `sunday_daily_sheets/${payload.id}`);
+      }
+    }
+    return payload;
+  };
+
+  const toggleDailyPreProgramItem = async (
+    sheetId: string,
+    needItem: string
+  ): Promise<void> => {
+    const existing = dailyPlanSheets.find((s) => s.id === sheetId);
+    if (!existing) return;
+
+    const prevState = existing.preProgramChecklistState || {};
+    const nextState: Record<string, boolean> = {
+      ...prevState,
+      [needItem]: !prevState[needItem],
+    };
+
+    await updateDailyPlanSheet(sheetId, {
+      preProgramChecklistState: nextState,
+    });
+  };
+
+  const deleteDailyPlanSheet = async (sheetId: string): Promise<void> => {
+    setDailyPlanSheets((prev) => {
+      const next = prev.filter((s) => s.id !== sheetId);
+      persistLocalDailySheets(next);
+      return next;
+    });
+
+    if (auth.currentUser) {
+      try {
+        await deleteDoc(doc(db, 'sunday_daily_sheets', sheetId));
+      } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, `sunday_daily_sheets/${sheetId}`);
+      }
+    }
   };
 
   const [departmentsList, setDepartmentsList] = useState<DepartmentInfo[]>(() => {
@@ -1335,7 +1477,8 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (user) {
         const isVerifiedMasterEmail = Boolean(
           user.emailVerified &&
-            (user.email === 'goferconstruction@gmail.com' ||
+            (user.email === 'finalizedyosef@gmail.com' ||
+              user.email === 'goferconstruction@gmail.com' ||
               user.email === 'yaredcotm@gmail.com' ||
               user.email === 'admin@teklesawiros.org')
         );
@@ -1440,13 +1583,15 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setFirebaseUser(null);
         setIsAdminDocVerified(false);
         setIsAuthReady(true);
+        const guestDeptInfo = departmentsList.find((d) => d.id === activeDepartment);
         setCurrentUser({
           id: 'u_default',
           fullName: 'ተጠቃሚ (Guest)',
           email: '',
           role: 'MEMBER',
-          department: 'የተክለ ሣዊሮስ ሰንበት ት/ቤት ኪነጥበብ ክፍል',
-          joinedDate: '፳፻፲፮ ዓ.ም',
+          department: guestDeptInfo?.titleAmharic || 'የተክለ ሣዊሮስ ሰንበት ት/ቤት',
+          departmentId: activeDepartment,
+          joinedDate: '፳፻፲፱ ዓ.ም',
           myWorksCount: 0,
           mySubmissionsCount: 0,
           myBookmarksCount: 0,
@@ -1472,7 +1617,8 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const isSuperAdmin = Boolean(
     firebaseUser &&
       ((firebaseUser.emailVerified &&
-        (firebaseUser.email === 'goferconstruction@gmail.com' ||
+        (firebaseUser.email === 'finalizedyosef@gmail.com' ||
+          firebaseUser.email === 'goferconstruction@gmail.com' ||
           firebaseUser.email === 'yaredcotm@gmail.com' ||
           firebaseUser.email === 'admin@teklesawiros.org')) ||
         isAdminDocVerified)
@@ -1495,8 +1641,25 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
             currentMem?.role === 'EDITOR'))
     );
 
+    if (isDepartmentPortalLocked) {
+      setWorks((prev) => {
+        const scoped = prev.filter((w) => w.departmentId === activeDepartment);
+        if (scoped.length > 0) return scoped;
+        return INITIAL_WORKS.filter((w) => w.departmentId === activeDepartment);
+      });
+    }
+
     let worksQuery;
-    if (firebaseUser && isSuperAdmin) {
+    if (isDepartmentPortalLocked) {
+      worksQuery =
+        firebaseUser && hasDeptManagePrivilege
+          ? query(collection(db, 'works'), where('departmentId', '==', activeDepartment))
+          : query(
+              collection(db, 'works'),
+              where('departmentId', '==', activeDepartment),
+              where('status', 'in', ['APPROVED', 'PUBLISHED'])
+            );
+    } else if (firebaseUser && isSuperAdmin) {
       worksQuery = collection(db, 'works');
     } else if (firebaseUser && isApprovedMemberInDept) {
       worksQuery = hasDeptManagePrivilege
@@ -1528,22 +1691,25 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const fetchedWorks: WorkItem[] = [];
           snapshot.forEach((docSnap) => {
             const w = docSnap.data() as WorkItem;
+            if (isDepartmentPortalLocked && w.departmentId !== activeDepartment) {
+              return;
+            }
             if (savedBookmarks.includes(w.id)) {
               w.isBookmarked = true;
             }
             fetchedWorks.push(w);
           });
           setWorks(fetchedWorks);
-        } else if (firebaseUser && isSuperAdmin) {
-          // Only super admin seeds initial works if Firestore collection is empty
-          seedInitialFirestoreData();
-        } else if (firebaseUser && !isSuperAdmin) {
+        } else if (isDepartmentPortalLocked || (firebaseUser && !isSuperAdmin)) {
           // Strict department isolation when Firestore works collection for this dept is empty
           setWorks(
             INITIAL_WORKS.filter((w) =>
               w.departmentId ? w.departmentId === activeDepartment : activeDepartment === 'kinetibeb'
             ).map((w) => (savedBookmarks.includes(w.id) ? { ...w, isBookmarked: true } : w))
           );
+        } else if (firebaseUser && isSuperAdmin) {
+          // Only super admin seeds initial works if Firestore collection is empty
+          seedInitialFirestoreData();
         }
       },
       (error) => {
@@ -1556,7 +1722,7 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
 
     return () => unsubscribe();
-  }, [firebaseUser, activeDepartment, departmentMemberships, isSuperAdmin]);
+  }, [firebaseUser, activeDepartment, departmentMemberships, isSuperAdmin, isDepartmentPortalLocked]);
 
   // User's department memberships strictly keyed by authenticated UID
   const userMemberships = firebaseUser
@@ -1567,11 +1733,13 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     ? departmentMemberships.filter((m) => m.status === 'APPROVED')
     : userMemberships.filter((m) => m.status === 'APPROVED');
 
-  const approvedDepartmentsList = isSuperAdmin
-    ? departmentsList
-    : departmentsList.filter((dept) =>
-        approvedMemberships.some((m) => m.departmentId === dept.id)
-      );
+  const approvedDepartmentsList = isDepartmentPortalLocked
+    ? departmentsList.filter((dept) => dept.id === activeDepartment)
+    : isSuperAdmin
+      ? departmentsList
+      : departmentsList.filter((dept) =>
+          approvedMemberships.some((m) => m.departmentId === dept.id)
+        );
 
   const activeMembership =
     userMemberships.find((m) => m.departmentId === activeDepartment) || null;
@@ -1597,9 +1765,9 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
   };
 
-  const canSwitchDepartments = Boolean(
-    isSuperAdmin || approvedDepartmentsList.length > 1
-  );
+  const canSwitchDepartments = isDepartmentPortalLocked
+    ? false
+    : Boolean(isSuperAdmin || approvedDepartmentsList.length > 1);
 
   const hasPendingApproval = Boolean(
     firebaseUser &&
@@ -1621,17 +1789,26 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // 3. Real-time Firestore synchronization for Members (Department-scoped & authenticated)
   useEffect(() => {
+    const scopeInitialMembers = () =>
+      isDepartmentPortalLocked
+        ? INITIAL_MEMBERS.filter((m) => m.departmentId === activeDepartment)
+        : INITIAL_MEMBERS;
+
     if (!isAuthReady || !firebaseUser) {
-      setMembers(INITIAL_MEMBERS);
+      setMembers(scopeInitialMembers());
       return;
     }
 
     const isApprovedInDept = isSuperAdmin || activeMembership?.status === 'APPROVED';
     if (!isApprovedInDept) {
+      if (isDepartmentPortalLocked) {
+        setMembers(INITIAL_MEMBERS.filter((m) => m.departmentId === activeDepartment));
+      }
       return;
     }
 
-    if (!isSuperAdmin) {
+    const strictDeptOnly = isDepartmentPortalLocked || !isSuperAdmin;
+    if (strictDeptOnly) {
       setMembers(
         INITIAL_MEMBERS.filter((m) =>
           m.departmentId ? m.departmentId === activeDepartment : activeDepartment === 'kinetibeb'
@@ -1639,9 +1816,9 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       );
     }
 
-    const membersQuery = isSuperAdmin
-      ? collection(db, 'members')
-      : query(collection(db, 'members'), where('departmentId', '==', activeDepartment));
+    const membersQuery = strictDeptOnly
+      ? query(collection(db, 'members'), where('departmentId', '==', activeDepartment))
+      : collection(db, 'members');
 
     const unsubscribe = onSnapshot(
       membersQuery,
@@ -1649,16 +1826,18 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (!snapshot.empty) {
           const fetchedMembers: ChurchMember[] = [];
           snapshot.forEach((docSnap) => {
-            fetchedMembers.push(docSnap.data() as ChurchMember);
+            const m = docSnap.data() as ChurchMember;
+            if (strictDeptOnly && m.departmentId !== activeDepartment) return;
+            fetchedMembers.push(m);
           });
           setMembers((prev) => {
-            const base = isSuperAdmin
-              ? prev
-              : prev.filter((m) =>
+            const base = strictDeptOnly
+              ? prev.filter((m) =>
                   m.departmentId
                     ? m.departmentId === activeDepartment
                     : activeDepartment === 'kinetibeb'
-                );
+                )
+              : prev;
             const map = new Map(base.map((m) => [m.id, m]));
             for (const m of fetchedMembers) {
               map.set(m.id, m);
@@ -1677,21 +1856,30 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
 
     return () => unsubscribe();
-  }, [isAuthReady, firebaseUser, activeDepartment, activeMembership?.status, isSuperAdmin]);
+  }, [isAuthReady, firebaseUser, activeDepartment, activeMembership?.status, isSuperAdmin, isDepartmentPortalLocked]);
 
   // 4. Real-time Firestore synchronization for Events (Department-scoped & authenticated)
   useEffect(() => {
+    const scopeInitialEvents = () =>
+      isDepartmentPortalLocked
+        ? INITIAL_EVENTS.filter((e) => e.departmentId === activeDepartment)
+        : INITIAL_EVENTS;
+
     if (!isAuthReady || !firebaseUser) {
-      setEvents(INITIAL_EVENTS);
+      setEvents(scopeInitialEvents());
       return;
     }
 
     const isApprovedInDept = isSuperAdmin || activeMembership?.status === 'APPROVED';
     if (!isApprovedInDept) {
+      if (isDepartmentPortalLocked) {
+        setEvents(INITIAL_EVENTS.filter((e) => e.departmentId === activeDepartment));
+      }
       return;
     }
 
-    if (!isSuperAdmin) {
+    const strictDeptOnly = isDepartmentPortalLocked || !isSuperAdmin;
+    if (strictDeptOnly) {
       setEvents(
         INITIAL_EVENTS.filter((e) =>
           e.departmentId ? e.departmentId === activeDepartment : activeDepartment === 'kinetibeb'
@@ -1699,9 +1887,9 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       );
     }
 
-    const eventsQuery = isSuperAdmin
-      ? collection(db, 'events')
-      : query(collection(db, 'events'), where('departmentId', '==', activeDepartment));
+    const eventsQuery = strictDeptOnly
+      ? query(collection(db, 'events'), where('departmentId', '==', activeDepartment))
+      : collection(db, 'events');
 
     const unsubscribe = onSnapshot(
       eventsQuery,
@@ -1709,16 +1897,18 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (!snapshot.empty) {
           const fetchedEvents: CulturalEvent[] = [];
           snapshot.forEach((docSnap) => {
-            fetchedEvents.push(docSnap.data() as CulturalEvent);
+            const e = docSnap.data() as CulturalEvent;
+            if (strictDeptOnly && e.departmentId !== activeDepartment) return;
+            fetchedEvents.push(e);
           });
           setEvents((prev) => {
-            const base = isSuperAdmin
-              ? prev
-              : prev.filter((e) =>
+            const base = strictDeptOnly
+              ? prev.filter((e) =>
                   e.departmentId
                     ? e.departmentId === activeDepartment
                     : activeDepartment === 'kinetibeb'
-                );
+                )
+              : prev;
             const map = new Map(base.map((e) => [e.id, e]));
             for (const e of fetchedEvents) {
               map.set(e.id, e);
@@ -1737,7 +1927,38 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
 
     return () => unsubscribe();
-  }, [isAuthReady, firebaseUser, activeDepartment, activeMembership?.status, isSuperAdmin]);
+  }, [isAuthReady, firebaseUser, activeDepartment, activeMembership?.status, isSuperAdmin, isDepartmentPortalLocked]);
+
+  // 4b. Real-time Firestore synchronization for Sunday Daily Plan Sheets (Ehud Merha Gibir)
+  useEffect(() => {
+    if (!isAuthReady) return;
+
+    const unsubscribe = onSnapshot(
+      collection(db, 'sunday_daily_sheets'),
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const fetchedSheets: SundayDailyPlanSheet[] = [];
+          snapshot.forEach((docSnap) => {
+            fetchedSheets.push(docSnap.data() as SundayDailyPlanSheet);
+          });
+          setDailyPlanSheets(() => {
+            const merged = mergeDailySheets(INITIAL_DAILY_PLAN_SHEETS, fetchedSheets);
+            persistLocalDailySheets(merged);
+            return merged;
+          });
+        }
+      },
+      (error) => {
+        try {
+          handleFirestoreError(error, OperationType.LIST, 'sunday_daily_sheets');
+        } catch (err) {
+          console.warn('Operating in offline/cached mode for sunday_daily_sheets:', err);
+        }
+      }
+    );
+
+    return () => unsubscribe();
+  }, [isAuthReady]);
 
   // 5. Real-time Firestore synchronization for Department Memberships (Authenticated & Scoped)
   useEffect(() => {
@@ -1794,9 +2015,10 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const hasRosterPrivilege = isSuperAdmin || isDeptAdmin || canApproveDeptMembers;
 
     if (hasRosterPrivilege) {
-      const deptQuery = isSuperAdmin
-        ? collection(db, 'department_memberships')
-        : query(collection(db, 'department_memberships'), where('departmentId', '==', activeDepartment));
+      const deptQuery =
+        isSuperAdmin && !isDepartmentPortalLocked
+          ? collection(db, 'department_memberships')
+          : query(collection(db, 'department_memberships'), where('departmentId', '==', activeDepartment));
 
       unsubDept = onSnapshot(
         deptQuery,
@@ -1831,7 +2053,7 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (unsubUser) unsubUser();
       if (unsubDept) unsubDept();
     };
-  }, [isAuthReady, firebaseUser, activeDepartment, isSuperAdmin, isDeptAdmin, canApproveDeptMembers]);
+  }, [isAuthReady, firebaseUser, activeDepartment, isSuperAdmin, isDeptAdmin, canApproveDeptMembers, isDepartmentPortalLocked]);
 
   // 5b. Real-time Firestore synchronization for Registered Users (Super Admin only)
   useEffect(() => {
@@ -1881,9 +2103,10 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return;
     }
 
-    const invitesQuery = isSuperAdmin
-      ? collection(db, 'department_invites')
-      : query(collection(db, 'department_invites'), where('departmentId', '==', activeDepartment));
+    const invitesQuery =
+      isSuperAdmin && !isDepartmentPortalLocked
+        ? collection(db, 'department_invites')
+        : query(collection(db, 'department_invites'), where('departmentId', '==', activeDepartment));
 
     const unsubscribe = onSnapshot(
       invitesQuery,
@@ -1900,7 +2123,7 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
 
     return () => unsubscribe();
-  }, [isAuthReady, firebaseUser, activeDepartment, isSuperAdmin, isDeptAdmin, canApproveDeptMembers]);
+  }, [isAuthReady, firebaseUser, activeDepartment, isSuperAdmin, isDeptAdmin, canApproveDeptMembers, isDepartmentPortalLocked]);
 
   // 6. Real-time Firestore synchronization for Schedule Assignments (Department & Member Scoped)
   useEffect(() => {
@@ -2155,7 +2378,8 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
       const isMasterAdmin = Boolean(
         user.emailVerified &&
-          (user.email === 'goferconstruction@gmail.com' ||
+          (user.email === 'finalizedyosef@gmail.com' ||
+            user.email === 'goferconstruction@gmail.com' ||
             user.email === 'yaredcotm@gmail.com' ||
             user.email === 'admin@teklesawiros.org')
       );
@@ -3020,13 +3244,15 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       disconnectGoogleDrive();
       await signOut(auth);
       setFirebaseUser(null);
+      const guestDeptInfo = departmentsList.find((d) => d.id === activeDepartment);
       setCurrentUser({
         id: 'u_default',
         fullName: 'ተጠቃሚ (Guest)',
         email: '',
         role: 'MEMBER',
-        department: 'የተክለ ሣዊሮስ ሰንበት ት/ቤት ኪነጥበብ ክፍል',
-        joinedDate: '፳፻፲፮ ዓ.ም',
+        department: guestDeptInfo?.titleAmharic || 'የተክለ ሣዊሮስ ሰንበት ት/ቤት',
+        departmentId: activeDepartment,
+        joinedDate: '፳፻፲፱ ዓ.ም',
         myWorksCount: 0,
         mySubmissionsCount: 0,
         myBookmarksCount: 0,
@@ -3103,7 +3329,8 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     file?: File | null;
   }): Promise<WorkItem> => {
     setIsSyncing(true);
-    const category = categories.find((c) => c.id === data.categoryId);
+    const allDeptCategories = [...categories, ...getAllDepartmentCategories()];
+    const category = allDeptCategories.find((c) => c.id === data.categoryId);
     const newWorkId = `w_${Date.now()}`;
     const authorId = auth.currentUser?.uid || currentUser.id;
     const targetDeptId = data.departmentId || activeDepartment || 'kinetibeb';
@@ -3194,7 +3421,8 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     }
 
-    const category = categories.find((c) => c.id === (data.categoryId || existingWork.categoryId));
+    const allDeptCategories = [...categories, ...getAllDepartmentCategories()];
+    const category = allDeptCategories.find((c) => c.id === (data.categoryId || existingWork.categoryId));
 
     const updatedWork: WorkItem = {
       ...existingWork,
@@ -3474,6 +3702,9 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
         youthAnnualPlan: YOUTH_ANNUAL_PLAN_2019,
         dailyPlanSheets,
         updateDailyPlanSheet,
+        createDailyPlanSheet,
+        toggleDailyPreProgramItem,
+        deleteDailyPlanSheet,
         selectedDivision,
         currentUser,
         firebaseUser,
@@ -3514,6 +3745,7 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
         scheduleAssignments,
         departmentNotifications,
         isSuperAdmin,
+        isDepartmentPortalLocked,
         userMemberships,
         approvedMemberships,
         approvedDepartmentsList,

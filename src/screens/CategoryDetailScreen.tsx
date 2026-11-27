@@ -6,21 +6,46 @@ import { AppHeader } from '../components/AppHeader';
 import { ManuscriptBox, HaragDivider } from '../components/Ornaments';
 import { WorkCard } from '../components/Cards';
 import { QuickWorkPreviewModal } from '../components/LiturgicalAudioComponents';
+import { getAllDepartmentCategories } from '../data/departmentCategories';
 
 export const CategoryDetailScreen: React.FC<{
   categoryId: string;
   onWorkClick: (workId: string) => void;
   onBackClick: () => void;
 }> = ({ categoryId, onWorkClick, onBackClick }) => {
-  const { categories, works, selectedDivision, toggleBookmark, playWorkAudio } = useArchive();
+  const {
+    categories,
+    works,
+    selectedDivision,
+    activeDepartment,
+    departmentsList,
+    isSuperAdmin,
+    isDepartmentPortalLocked,
+    toggleBookmark,
+    playWorkAudio,
+  } = useArchive();
 
-  const category = categories.find((c) => c.id === categoryId) || categories[0];
+  const category =
+    [...categories, ...getAllDepartmentCategories()].find((c) => c.id === categoryId) ||
+    categories[0];
+  const isEhudCategory =
+    activeDepartment === 'ehud_merha_gibir' ||
+    ['annual_plans', 'weekly_timetables', 'daily_plan_sheets', 'organizer_rosters', 'orders_of_service', 'program_minutes'].includes(category.id);
+  const deptShortLabel =
+    departmentsList.find((d) => d.id === activeDepartment)?.shortTitleAmharic ||
+    (isEhudCategory ? 'የእሁድ መርሃ ግብር' : 'የኪነጥበብ');
   const [selectedDivFilter, setSelectedDivFilter] = useState<SundaySchoolDivision | 'all'>(selectedDivision);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [filterApprovedOnly, setFilterApprovedOnly] = useState<boolean>(false);
   const [previewWork, setPreviewWork] = useState<WorkItem | null>(null);
 
-  const categoryWorks = works.filter((w) => w.categoryId === category.id);
+  const categoryWorks = works.filter((w) => {
+    const matchesCategory = w.categoryId === category.id;
+    const matchesDepartment =
+      (isSuperAdmin && !isDepartmentPortalLocked) ||
+      (w.departmentId ? w.departmentId === activeDepartment : activeDepartment === 'kinetibeb');
+    return matchesCategory && matchesDepartment;
+  });
 
   const filteredWorks = categoryWorks.filter((work) => {
     const matchesDiv = selectedDivFilter === 'all' || work.division === selectedDivFilter;
@@ -59,7 +84,7 @@ export const CategoryDetailScreen: React.FC<{
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent flex flex-col justify-end p-5">
               <span className="text-xs font-bold text-[#FFD54F]">
-                የኪነጥበብ ዘርፍ መዝገብ
+                {isEhudCategory ? 'የእሁድ መርሃ ግብር ዘርፍ መዝገብ' : `${deptShortLabel} ዘርፍ መዝገብ`}
               </span>
               <h2 className="text-2xl sm:text-3xl font-bold font-serif-ethiopic text-white">
                 {category.nameAmharic}

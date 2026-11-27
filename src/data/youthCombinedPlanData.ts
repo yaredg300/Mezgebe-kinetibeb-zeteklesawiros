@@ -1389,3 +1389,125 @@ export const YOUTH_ANNUAL_PLAN_2019: SundayProgramPlanEntry[] = [
     isSpecialEvent: true,
   },
 ];
+
+// =========================================================================
+// 6. CHILDREN & INTERMEDIATES TARGETS AND TEACHER COORDINATOR SQUADS (2019 ዓ.ም.)
+// =========================================================================
+export const CHILDREN_TARGETS_2019: YouthAnnualTarget[] = [
+  {
+    id: 'ch_tgt_1',
+    code: 'ሕ-01',
+    titleAmharic: 'ሳምንታዊ የሕፃናት «የኔታ» እና ቃለ እግዚአብሔር ትምህርት',
+    category: 'መደበኛ',
+    targetMetric: '47 ሳምንታዊ መርሐ ግብሮች (6:00–8:00 ሰዓት)',
+    responsibleBody: 'የሕፃናት ክፍል መምህራንና ረዳት አስተባባሪዎች',
+    timelineMonths: 'መስከረም – ነሐሴ',
+    descriptionAmharic: 'ለሕፃናት መሠረታዊ የጸሎት ሥርዓት፣ የቅዱሳን ታሪክ፣ የመዝሙርና የግብረ ገብ ትምህርት በጨዋታና በሥዕላዊ መንገድ ማስተማር።',
+    status: 'IN_PROGRESS',
+  },
+  {
+    id: 'ch_tgt_2',
+    code: 'ሕ-02',
+    titleAmharic: 'የሕፃናት የቅዱስ ቁርባንና የንስሐ ዝግጅት መርሐ ግብር',
+    category: 'ልዩ',
+    targetMetric: 'በዓመት 2 ዋና ዙሮች (መጋቢት እና ነሐሴ)',
+    responsibleBody: 'የሕፃናት መንፈሳዊ መምህራንና ወላጆች ኮሚቴ',
+    timelineMonths: 'ጥቅምት – መጋቢት',
+    descriptionAmharic: 'ሕፃናት ከልጅነታቸው ጀምሮ የቅዱስ ቁርባንን ፍቅርና ክብር ተረድተው በሥርዓት እንዲቀርቡ ማዘጋጀት።',
+    status: 'IN_PROGRESS',
+  },
+  {
+    id: 'ch_tgt_3',
+    code: 'ሕ-03',
+    titleAmharic: 'መንፈሳዊ ሲኒማ፣ የኪነጥበብ ውሎ እና የጥያቄና መልስ ውድድር',
+    category: 'ስልጠና',
+    targetMetric: '12 የሲኒማ፣ 6 የጥያቄና መልስ እና 2 የኪነጥበብ ውሎዎች',
+    responsibleBody: 'የሕፃናት ዝግጅትና ሚዲያ ቡድን',
+    timelineMonths: 'ጥቅምት – ነሐሴ',
+    descriptionAmharic: 'በመጽሐፍ ቅዱስ ታሪኮች ላይ የተመሠረቱ የሕፃናት ፊልሞች፣ «12ቱ እንደ ጌታ» እና «እኔ መሆን የምፈልገው» የልምድ ልውውጥ።',
+    status: 'IN_PROGRESS',
+  },
+];
+
+export const MAEKELAWIYAN_TARGETS_2019: YouthAnnualTarget[] = [
+  {
+    id: 'mk_tgt_1',
+    code: 'ማ-01',
+    titleAmharic: 'የታዳጊዎች መደበኛ የእሁድ ትምህርተ ሃይማኖትና ክርስቲያናዊ ሥነ-ምግባር',
+    category: 'መደበኛ',
+    targetMetric: '47 የእሁድ ጉባኤያት (4:00–6:00 ሰዓት)',
+    responsibleBody: 'የማዕከላውያን ክፍል መምህራንና አስተባባሪዎች',
+    timelineMonths: 'መስከረም – ነሐሴ',
+    descriptionAmharic: 'በታዳጊነት ዕድሜ ለሚገኙ ተማሪዎች የቤተክርስቲያን ታሪክ፣ ምሥጢራተ ቤተክርስቲያንና የግብረ ገብ ጽናት ትምህርት መስጠት።',
+    status: 'IN_PROGRESS',
+  },
+  {
+    id: 'mk_tgt_2',
+    code: 'ማ-02',
+    titleAmharic: '«ክፍሌን ላውቅ» እና «12ቱ እንደ ጌታ» የአገልግሎት ትውውቅ',
+    category: 'ስልጠና',
+    targetMetric: '6 ልዩ የውይይትና የልምድ ልውውጥ መርሐ ግብሮች',
+    responsibleBody: 'የማዕከላውያን ምክርና ክትትል ቡድን',
+    timelineMonths: 'ጥቅምት – ሐምሌ',
+    descriptionAmharic: 'ማዕከላውያን ወደ ወጣቶች ክፍል ከመሸጋገራቸው በፊት የሰንበት ት/ቤቱን ክፍሎችና ኃላፊነቶች እንዲረዱ ማዘጋጀት።',
+    status: 'IN_PROGRESS',
+  },
+  {
+    id: 'mk_tgt_3',
+    code: 'ማ-03',
+    titleAmharic: 'የማዕከላውያን የጉብኝት፣ የበዓላት እና የኪነጥበብ ውሎ',
+    category: 'ልዩ',
+    targetMetric: 'ዓመታዊ መንፈሳዊ ጉዞ (ሰኔ 20) እና 2 የኪነጥበብ ውሎዎች',
+    responsibleBody: 'የማዕከላውያን መርሐ ግብርና የወላጆች ግንኙነት ቡድን',
+    timelineMonths: 'የካቲት – ነሐሴ',
+    descriptionAmharic: 'በሆሳዕና፣ በልደታ እና በአቡነ ተክለ ሣዊሮስ በዓላት ላይ የታዳጊዎች ዝማሬና የመድረክ ተሳትፎ ማጎልበት።',
+    status: 'PLANNED',
+  },
+];
+
+export const CHILDREN_TEACHER_SQUADS_2019: YouthOrganizerSquad[] = [
+  {
+    id: 'ch_sq_01',
+    squadNumber: 1,
+    nameAmharic: 'የሕፃናት ቡድን 01 — «የኔታና የጸሎት መሪዎች»',
+    spiritualMeaning: '«ሕፃናትን ተዉአቸው ወደ እኔም ይምጡ አትከልክሉአቸው» (ማቴዎስ 19:14)',
+    coordinatorName: 'መምህር ዳዊት አብርሃም',
+    members: ['መምህር ዳዊት አብርሃም (አስተባባሪ)', 'እኅት ትዕግሥት መኮንን', 'እኅት ሃና ግርማ', 'ወንድም ሳሙኤል ተክሌ'],
+    assignedSundays: ['ጥቅምት 1 (የኔታ)', 'ጥቅምት 8 (መንፈሳዊ ፊልም)'],
+    motto: 'የልጅነት ንጽሕና የእግዚአብሔር ስጦታ ነው',
+  },
+  {
+    id: 'ch_sq_02',
+    squadNumber: 2,
+    nameAmharic: 'የሕፃናት ቡድን 02 — «ቃለ እግዚአብሔርና መዝሙር»',
+    spiritualMeaning: '«ከሕፃናትና ከሚጠቡ ልጆች አፍ ምስጋናን አዘጋጀህ» (ማቴዎስ 21:16)',
+    coordinatorName: 'እኅት ጽዮን ተስፋዬ',
+    members: ['እኅት ጽዮን ተስፋዬ (አስተባባሪ)', 'ዲ/ን አቤል መስፍን', 'እኅት ሩት ተስፋዬ', 'ወንድም በረከት ሃብታሙ'],
+    assignedSundays: ['ጥቅምት 15 (ጥያቄና መልስ)', 'ጥቅምት 22 (ቃለ እግዚአብሔር)', 'ጥቅምት 29 (ኪነጥበብ ውሎ)'],
+    motto: 'በፍቅርና በትዕግሥት ሕፃናትን እናንጻለን',
+  },
+];
+
+export const MAEKELAWIYAN_TEACHER_SQUADS_2019: YouthOrganizerSquad[] = [
+  {
+    id: 'mk_sq_01',
+    squadNumber: 1,
+    nameAmharic: 'የማዕከላውያን ቡድን 01 — «መካሪና አስተማሪዎች»',
+    spiritualMeaning: '«ጎበዝ መንገዱን በምን ያነጻል? ቃልህን በመጠበቅ ነው» (መዝሙር 119:9)',
+    coordinatorName: 'መምህር ዮናስ ኃይሉ',
+    members: ['መምህር ዮናስ ኃይሉ (አስተባባሪ)', 'መምህር ኤርምያስ በላይ', 'እኅት ቅድስት ኃይሌ', 'ወንድም ናትናኤል ታፈሰ'],
+    assignedSundays: ['ጥቅምት 1 (የእኔ መሆን የምፈልገው)', 'ጥቅምት 8 (ክፍሌን ላውቅ)', 'ጥቅምት 15 (መንፈሳዊ ፊልም)'],
+    motto: 'ታዳጊዎችን ለክርስቲያናዊ ፍጽምና ማዘጋጀት',
+  },
+  {
+    id: 'mk_sq_02',
+    squadNumber: 2,
+    nameAmharic: 'የማዕከላውያን ቡድን 02 — «አዘጋጅና የኪነጥበብ መምህራን»',
+    spiritualMeaning: '«በወጣትነትህ ጊዜ ፈጣሪህን አስብ» (መክብብ 12:1)',
+    coordinatorName: 'ዲ/ን ቴዎድሮስ አማረ',
+    members: ['ዲ/ን ቴዎድሮስ አማረ (አስተባባሪ)', 'እኅት ቤተልሔም አሰፋ', 'ወንድም ዮሐንስ ግርማ', 'እኅት ሰላማዊት አበበ'],
+    assignedSundays: ['ጥቅምት 22 (የኔታ)', 'ጥቅምት 29 (ቃለ እግዚአብሔር)'],
+    motto: 'በዕውቀትና በመንፈሳዊ ጽናት የተገነባ ትውልድ',
+  },
+];
+

@@ -64,11 +64,16 @@ export const WorkDetailScreen: React.FC<{
     }
   };
 
+  const isEhudWork = work.departmentId === 'ehud_merha_gibir';
+
   const handleShare = () => {
+    const deptArchiveLabel = isEhudWork
+      ? 'ተክለ ሣዊሮስ ሰንበት ትምህርት ቤት የእሁድ መርሃ ግብር መዝገብ'
+      : 'ተክለ ሣዊሮስ ሰንበት ትምህርት ቤት የኪነጥበብ መዝገብ';
     if (navigator.share) {
       navigator.share({
         title: work.title,
-        text: `${work.title} - ${work.writerName} (ተክለ ሣዊሮስ ሰንበት ትምህርት ቤት የኪነጥበብ መዝገብ)`,
+        text: `${work.title} - ${work.writerName} (${deptArchiveLabel})`,
         url: window.location.href,
       }).catch(() => {});
     } else {
@@ -91,24 +96,26 @@ export const WorkDetailScreen: React.FC<{
         onBackClick={onBackClick}
         actions={
           <div className="flex items-center gap-1">
-            {/* Audio Recitation button */}
-            <button
-              onClick={() => {
-                if (isThisWorkAudioPlaying) {
-                  toggleAudioPlayPause();
-                } else {
-                  playWorkAudio(work);
-                }
-              }}
-              className={`p-2 rounded-xl transition-colors ${
-                isThisWorkAudioPlaying
-                  ? 'text-[#B88500] bg-[#B88500]/15'
-                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-              }`}
-              title="በድምፅ አድምጥ"
-            >
-              <Volume2 className="w-5 h-5" />
-            </button>
+            {/* Audio Recitation button (hidden for operational Ehud Merha Gibir docs) */}
+            {!isEhudWork && (
+              <button
+                onClick={() => {
+                  if (isThisWorkAudioPlaying) {
+                    toggleAudioPlayPause();
+                  } else {
+                    playWorkAudio(work);
+                  }
+                }}
+                className={`p-2 rounded-xl transition-colors ${
+                  isThisWorkAudioPlaying
+                    ? 'text-[#B88500] bg-[#B88500]/15'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+                title="በድምፅ አድምጥ"
+              >
+                <Volume2 className="w-5 h-5" />
+              </button>
+            )}
 
             {/* Direct Download PDF */}
             <button
@@ -380,9 +387,15 @@ export const WorkDetailScreen: React.FC<{
         {/* Institutional Archive Footnote */}
         <div className="text-center py-6 text-xs text-slate-400 space-y-1">
           <p className="font-bold text-[#0C4A9E] dark:text-[#7FAFFF]">
-            ዘተክለ ሣዊሮስ ሰንበት ትምህርት ቤት የኪነጥበብ ክፍል ዲጂታል መዝገብ
+            {isEhudWork
+              ? 'ዘተክለ ሣዊሮስ ሰንበት ትምህርት ቤት የእሁድ መርሃ ግብር ክፍል ዲጂታል መዝገብ'
+              : 'ዘተክለ ሣዊሮስ ሰንበት ትምህርት ቤት የኪነጥበብ ክፍል ዲጂታል መዝገብ'}
           </p>
-          <p>ሁሉም የፈጠራ ስራዎች በቅጂ መብትና በቤተክርስቲያን መዝገብ የተጠበቁ ናቸው።</p>
+          <p>
+            {isEhudWork
+              ? 'ሁሉም የመርሐ ግብር ዕቅዶችና ቃለ-ጉባኤዎች በሰንበት ትምህርት ቤቱ መዝገብ የተጠበቁ ናቸው።'
+              : 'ሁሉም የፈጠራ ስራዎች በቅጂ መብትና በቤተክርስቲያን መዝገብ የተጠበቁ ናቸው።'}
+          </p>
         </div>
       </div>
     </div>

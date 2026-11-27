@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Search,
   Sparkles,
@@ -15,6 +15,10 @@ import {
   Filter,
   X,
   FileSpreadsheet,
+  Target,
+  Clock,
+  Eye,
+  Download,
 } from 'lucide-react';
 import { useArchive } from '../context/ArchiveContext';
 import { AppHeader } from '../components/AppHeader';
@@ -22,8 +26,24 @@ import { ManuscriptBox, HaragDivider } from '../components/Ornaments';
 import { CategoryCard, WorkCard } from '../components/Cards';
 import { GoogleDriveModal } from '../components/GoogleDriveModal';
 import { QuickWorkPreviewModal } from '../components/LiturgicalAudioComponents';
-import { WorkItem, SundaySchoolDepartment, WorkCategory } from '../types';
+import { SundayPlanPdfViewerModal } from '../components/SundayPlanPdfViewerModal';
+import {
+  WorkItem,
+  SundaySchoolDepartment,
+  WorkCategory,
+  SundayPlanPdfPackage,
+  DIVISIONS,
+} from '../types';
 import { getDepartmentCategories, getAllDepartmentCategories } from '../data/departmentCategories';
+import {
+  YOUTH_ANNUAL_TARGETS_2019,
+  YOUTH_ORGANIZER_SQUADS_2019,
+  CHILDREN_TARGETS_2019,
+  MAEKELAWIYAN_TARGETS_2019,
+  CHILDREN_TEACHER_SQUADS_2019,
+  MAEKELAWIYAN_TEACHER_SQUADS_2019,
+} from '../data/youthCombinedPlanData';
+import { downloadDailyPlanPdf } from '../utils/pdfExport';
 
 export const ArchiveScreen: React.FC<{
   onCategoryClick: (categoryId: string) => void;
@@ -36,10 +56,36 @@ export const ArchiveScreen: React.FC<{
     activeDepartment,
     setActiveDepartment,
     departmentsList,
+    approvedDepartmentsList,
+    canSwitchDepartments,
+    isSuperAdmin,
+    isDepartmentPortalLocked,
+    firebaseUser,
+    dailyPlanSheets,
+    pdfPackages,
+    childrenAnnualPlan,
+    maekelawiyanAnnualPlan,
+    youthAnnualPlan,
     toggleBookmark,
     playWorkAudio,
     isGoogleDriveConnected,
   } = useArchive();
+
+  const isSingleDeptIsolated = Boolean(
+    isDepartmentPortalLocked ||
+      (!isSuperAdmin && !canSwitchDepartments && firebaseUser && approvedDepartmentsList.length <= 1)
+  );
+
+  const visibleDepartments = useMemo(() => {
+    if (isDepartmentPortalLocked) {
+      return departmentsList.filter((d) => d.id === activeDepartment);
+    }
+    if (isSuperAdmin) return departmentsList;
+    if (firebaseUser && approvedDepartmentsList.length > 0 && !canSwitchDepartments) {
+      return approvedDepartmentsList;
+    }
+    return departmentsList;
+  }, [isDepartmentPortalLocked, activeDepartment, isSuperAdmin, firebaseUser, approvedDepartmentsList, canSwitchDepartments, departmentsList]);
 
   const [selectedDeptFilter, setSelectedDeptFilter] = useState<SundaySchoolDepartment | 'ALL'>(
     activeDepartment || 'ALL'
@@ -49,9 +95,116 @@ export const ArchiveScreen: React.FC<{
   const [viewMode, setViewMode] = useState<'works' | 'categories'>('works');
   const [previewWork, setPreviewWork] = useState<WorkItem | null>(null);
   const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
+  const [selectedPdfPkg, setSelectedPdfPkg] = useState<SundayPlanPdfPackage | null>(null);
+
+  useEffect(() => {
+    if (isSingleDeptIsolated && activeDepartment) {
+      setSelectedDeptFilter(activeDepartment);
+    } else if (
+      selectedDeptFilter !== 'ALL' &&
+      !visibleDepartments.some((d) => d.id === selectedDeptFilter)
+    ) {
+      setSelectedDeptFilter(visibleDepartments[0]?.id || activeDepartment || 'kinetibeb');
+    }
+  }, [isSingleDeptIsolated, activeDepartment, visibleDepartments, selectedDeptFilter]);
 
   // Active department metadata
-  const currentDept = departmentsList.find((d) => d.id === selectedDeptFilter);
+  const currentDept = visibleDepartments.find((d) => d.id === selectedDeptFilter) ||
+    departmentsList.find((d) => d.id === selectedDeptFilter);
+
+  const allEhudTargets = useMemo(
+    () => [
+      ...YOUTH_ANNUAL_TARGETS_2019.map((t) => ({ ...t, division: 'youth' as const })),
+      ...CHILDREN_TARGETS_2019.map((t) => ({ ...t, division: 'children' as const })),
+      ...MAEKELAWIYAN_TARGETS_2019.map((t) => ({ ...t, division: 'intermediates' as const })),
+    ],
+    []
+  );
+
+  const allEhudSquads = useMemo(
+    () => [
+      ...YOUTH_ORGANIZER_SQUADS_2019.map((s) => ({ ...s, division: 'youth' as const })),
+      ...CHILDREN_TEACHER_SQUADS_2019.map((s) => ({ ...s, division: 'children' as const })),
+      ...MAEKELAWIYAN_TEACHER_SQUADS_2019.map((s) => ({ ...s, division: 'intermediates' as const })),
+    ],
+    []
+  );
+
+  const ehudOperationalIndex = useMemo(() => {
+    if (selectedDeptFilter !== 'ehud_merha_gibir') {
+      return {
+        pdfs: [] as SundayPlanPdfPackage[],
+        sheets: [] as typeof dailyPlanSheets,
+        targets: [] as typeof allEhudTargets,
+        squads: [] as typeof allEhudSquads,
+        totalCount: 0,
+      };
+    }
+
+    const q = searchQuery.trim().toLowerCase();
+    const matchesQ = (text?: string) => !q || (text ? text.toLowerCase().includes(q) : false);
+
+    const includePdfs = selectedCategoryFilter === 'ALL' || selectedCategoryFilter === 'annual_plans';
+    const includeSheets =
+      selectedCategoryFilter === 'ALL' ||
+      selectedCategoryFilter === 'daily_plan_sheets' ||
+      selectedCategoryFilter === 'weekly_timetables';
+    const includeTargets = selectedCategoryFilter === 'ALL' || selectedCategoryFilter === 'annual_plans';
+    const includeSquads =
+      selectedCategoryFilter === 'ALL' || selectedCategoryFilter === 'organizer_rosters';
+
+    const pdfs = includePdfs
+      ? pdfPackages.filter(
+          (p) => matchesQ(p.title) || matchesQ(p.subtitle) || matchesQ(p.description)
+        )
+      : [];
+
+    const sheets = includeSheets
+      ? dailyPlanSheets.filter(
+          (s) =>
+            matchesQ(s.mainTopic) ||
+            matchesQ(s.dateAmharic) ||
+            matchesQ(s.leader) ||
+            matchesQ(s.presenterOrTeacher) ||
+            matchesQ(s.monthAmharic)
+        )
+      : [];
+
+    const targets = includeTargets
+      ? allEhudTargets.filter(
+          (t) =>
+            matchesQ(t.titleAmharic) ||
+            matchesQ(t.descriptionAmharic) ||
+            matchesQ(t.responsibleBody) ||
+            matchesQ(t.code)
+        )
+      : [];
+
+    const squads = includeSquads
+      ? allEhudSquads.filter(
+          (sq) =>
+            matchesQ(sq.nameAmharic) ||
+            matchesQ(sq.coordinatorName) ||
+            sq.members.some((m) => matchesQ(m))
+        )
+      : [];
+
+    return {
+      pdfs,
+      sheets,
+      targets,
+      squads,
+      totalCount: pdfs.length + sheets.length + targets.length + squads.length,
+    };
+  }, [
+    selectedDeptFilter,
+    selectedCategoryFilter,
+    searchQuery,
+    pdfPackages,
+    dailyPlanSheets,
+    allEhudTargets,
+    allEhudSquads,
+  ]);
 
   // Available categories for the currently selected department
   const departmentCategories: WorkCategory[] = useMemo(() => {
@@ -62,7 +215,7 @@ export const ArchiveScreen: React.FC<{
 
     // Compute actual work count for each category within this department context
     return rawCategories.map((cat) => {
-      const count = works.filter((w) => {
+      const workCount = works.filter((w) => {
         const matchesDept =
           selectedDeptFilter === 'ALL' ||
           (w.departmentId ? w.departmentId === selectedDeptFilter : selectedDeptFilter === 'kinetibeb');
@@ -74,12 +227,40 @@ export const ArchiveScreen: React.FC<{
         );
       }).length;
 
+      let extraEhudCount = 0;
+      if (selectedDeptFilter === 'ehud_merha_gibir' || selectedDeptFilter === 'ALL') {
+        if (cat.id === 'annual_plans') {
+          extraEhudCount =
+            pdfPackages.length +
+            allEhudTargets.length +
+            childrenAnnualPlan.length +
+            maekelawiyanAnnualPlan.length +
+            youthAnnualPlan.length;
+        } else if (cat.id === 'daily_plan_sheets') {
+          extraEhudCount = dailyPlanSheets.length;
+        } else if (cat.id === 'weekly_timetables') {
+          extraEhudCount = dailyPlanSheets.length;
+        } else if (cat.id === 'organizer_rosters') {
+          extraEhudCount = allEhudSquads.length;
+        }
+      }
+
       return {
         ...cat,
-        workCount: count,
+        workCount: workCount + extraEhudCount,
       };
     });
-  }, [selectedDeptFilter, works]);
+  }, [
+    selectedDeptFilter,
+    works,
+    pdfPackages.length,
+    allEhudTargets.length,
+    allEhudSquads.length,
+    dailyPlanSheets.length,
+    childrenAnnualPlan.length,
+    maekelawiyanAnnualPlan.length,
+    youthAnnualPlan.length,
+  ]);
 
   // Filter works by department, category, and search query
   const filteredWorks = useMemo(() => {
@@ -128,6 +309,7 @@ export const ArchiveScreen: React.FC<{
   }, [departmentCategories, searchQuery]);
 
   const handleSelectDepartment = (deptId: SundaySchoolDepartment | 'ALL') => {
+    if (isSingleDeptIsolated && deptId !== activeDepartment) return;
     setSelectedDeptFilter(deptId);
     setSelectedCategoryFilter('ALL'); // Reset category when department changes
     if (deptId !== 'ALL') {
@@ -155,128 +337,112 @@ export const ArchiveScreen: React.FC<{
         onSearchClick={onSearchClick}
       />
 
-      <div className="max-w-5xl mx-auto px-4 py-4 space-y-4">
-        {/* Department Switcher Ribbon */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between text-xs px-1">
-            <span className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <Layers className="w-4 h-4 text-[#B88500]" />
-              የክፍላት መዝገብ ይምረጡ፦
-            </span>
-            <span className="text-[11px] text-slate-500">
-              {selectedDeptFilter === 'ALL' ? 'ሁሉም ክፍሎች' : currentDept?.titleAmharic}
-            </span>
+      <div className="max-w-5xl mx-auto px-4 py-3 space-y-3.5">
+        {/* Department Switcher Ribbon (hidden when isolated to a single portal) */}
+        {!isSingleDeptIsolated && (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs px-1">
+              <span className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                <Layers className="w-4 h-4 text-[#B88500]" />
+                የክፍላት መዝገብ ይምረጡ፦
+              </span>
+              <span className="text-[11px] text-slate-500">
+                {selectedDeptFilter === 'ALL' ? 'ሁሉም ክፍሎች' : currentDept?.titleAmharic}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 scrollbar-none">
+              <button
+                type="button"
+                onClick={() => handleSelectDepartment('ALL')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                  selectedDeptFilter === 'ALL'
+                    ? 'bg-[#0C4A9E] text-white shadow-sm'
+                    : 'bg-white dark:bg-[#111D30] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-[#0C4A9E]'
+                }`}
+              >
+                ሁሉም ክፍላት ({works.length})
+              </button>
+
+              {visibleDepartments.map((dept) => {
+                const isSelected = selectedDeptFilter === dept.id;
+                const baseCount = works.filter((w) =>
+                  w.departmentId ? w.departmentId === dept.id : dept.id === 'kinetibeb'
+                ).length;
+                const count =
+                  dept.id === 'ehud_merha_gibir'
+                    ? baseCount + pdfPackages.length + dailyPlanSheets.length
+                    : baseCount;
+
+                return (
+                  <button
+                    key={dept.id}
+                    type="button"
+                    onClick={() => handleSelectDepartment(dept.id)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                      isSelected
+                        ? 'text-white shadow-sm'
+                        : 'bg-white dark:bg-[#111D30] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-[#B88500]'
+                    }`}
+                    style={
+                      isSelected
+                        ? { backgroundColor: dept.accentColor || '#0C4A9E' }
+                        : {}
+                    }
+                  >
+                    <span
+                      className="w-2 h-2 rounded-full"
+                      style={{ backgroundColor: dept.accentColor || '#B88500' }}
+                    />
+                    <span>{dept.shortTitleAmharic || dept.titleAmharic}</span>
+                    <span className="text-[10px] opacity-80">({count})</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
-
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 scrollbar-none">
-            <button
-              type="button"
-              onClick={() => handleSelectDepartment('ALL')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
-                selectedDeptFilter === 'ALL'
-                  ? 'bg-[#0C4A9E] text-white shadow-sm'
-                  : 'bg-white dark:bg-[#111D30] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-[#0C4A9E]'
-              }`}
-            >
-              ሁሉም ክፍላት ({works.length})
-            </button>
-
-            {departmentsList.map((dept) => {
-              const isSelected = selectedDeptFilter === dept.id;
-              const count = works.filter((w) =>
-                w.departmentId ? w.departmentId === dept.id : dept.id === 'kinetibeb'
-              ).length;
-
-              return (
-                <button
-                  key={dept.id}
-                  type="button"
-                  onClick={() => handleSelectDepartment(dept.id)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
-                    isSelected
-                      ? 'text-white shadow-sm'
-                      : 'bg-white dark:bg-[#111D30] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-[#B88500]'
-                  }`}
-                  style={
-                    isSelected
-                      ? { backgroundColor: dept.accentColor || '#0C4A9E' }
-                      : {}
-                  }
-                >
-                  <span
-                    className="w-2 h-2 rounded-full"
-                    style={{ backgroundColor: dept.accentColor || '#B88500' }}
-                  />
-                  <span>{dept.shortTitleAmharic || dept.titleAmharic}</span>
-                  <span className="text-[10px] opacity-80">({count})</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        )}
 
         {/* Selected Department Showcase Banner */}
         {currentDept && selectedDeptFilter !== 'ALL' && (
           <div
-            className="p-4 sm:p-5 rounded-2xl text-white shadow-md relative overflow-hidden"
+            className="p-4 rounded-2xl text-white shadow-md relative overflow-hidden"
             style={{
               background: `linear-gradient(135deg, ${currentDept.accentColor || '#0C4A9E'}, #072958)`,
             }}
           >
-            <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-white/20 text-[#FFD54F] border border-white/20">
-                    {currentDept.badgeLabel || 'አገልግሎት ክፍል'}
-                  </span>
-                  <span className="text-[11px] text-white/80">
-                    {departmentCategories.length} የመዝገብ ዘርፎች
-                  </span>
-                </div>
-
-                <h2 className="text-lg sm:text-xl font-bold font-serif-ethiopic text-white">
-                  {currentDept.titleAmharic} መዝገብ
-                </h2>
-                <p className="text-xs text-white/90 leading-relaxed max-w-xl mt-1">
-                  {currentDept.descriptionAmharic}
-                </p>
-
-                <div className="flex flex-wrap items-center gap-3 mt-2 text-[11px] text-[#FFD54F]">
-                  <span>አስተባባሪ፦ {currentDept.coordinatorName || 'የክፍሉ ኃላፊ'}</span>
-                  <span>•</span>
-                  <span>የተመዘገቡ ሰነዶች፦ {filteredWorks.length}</span>
-                  <span>•</span>
-                  <span>የጸደቁ፦ {filteredWorks.filter((w) => w.status === 'APPROVED').length}</span>
-                </div>
+            <div className="relative z-10">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/20 text-[#FFD54F] border border-white/20">
+                  {currentDept.badgeLabel || 'አገልግሎት ክፍል'}
+                </span>
+                <span className="text-[11px] text-white/80">
+                  {departmentCategories.length} የመዝገብ ዘርፎች
+                </span>
               </div>
 
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setIsDriveModalOpen(true)}
-                  className="px-3 py-2 rounded-xl bg-white/15 hover:bg-white/25 border border-white/30 text-xs font-bold text-white flex items-center gap-1.5 transition-colors"
-                >
-                  <HardDrive className="w-4 h-4 text-[#FFD54F]" />
-                  <span>Google Drive</span>
-                </button>
+              <h2 className="text-base sm:text-lg font-bold font-serif-ethiopic text-white">
+                {currentDept.titleAmharic} መዝገብ
+              </h2>
+              <p className="text-xs text-white/90 leading-relaxed max-w-2xl mt-0.5">
+                {currentDept.descriptionAmharic}
+              </p>
 
-                <button
-                  type="button"
-                  onClick={onCreateWorkClick}
-                  className="px-3.5 py-2 rounded-xl bg-[#F5B800] hover:bg-[#FFD54F] text-slate-900 text-xs font-bold shadow-md flex items-center gap-1 transition-colors"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>ሰነድ ጨምር</span>
-                </button>
+              <div className="flex flex-wrap items-center gap-3 mt-2 text-[11px] text-[#FFD54F]">
+                <span>አስተባባሪ፦ {currentDept.coordinatorName || 'የክፍሉ ኃላፊ'}</span>
+                <span>•</span>
+                <span>የተመዘገቡ ሰነዶች፦ {filteredWorks.length}</span>
+                <span>•</span>
+                <span>የጸደቁ፦ {filteredWorks.filter((w) => w.status === 'APPROVED').length}</span>
               </div>
             </div>
           </div>
         )}
 
         {/* Global Toolbar: Search + Google Drive & Add */}
-        <div className="flex flex-col sm:flex-row items-center gap-2.5">
+        <div className="flex flex-col sm:flex-row items-center gap-2">
           <div className="relative flex-1 w-full">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-2.5" />
             <input
               type="text"
               value={searchQuery}
@@ -286,33 +452,33 @@ export const ArchiveScreen: React.FC<{
                   ? 'በሁሉም ክፍላት ሰነዶች ውስጥ ፈልግ'
                   : `በ«${currentDept?.shortTitleAmharic || currentDept?.titleAmharic}» መዝገብ ፈልግ`
               }...`}
-              className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm rounded-2xl bg-white dark:bg-[#111D30] border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500] shadow-xs"
+              className="w-full pl-9 pr-4 py-2 text-xs sm:text-sm rounded-xl bg-white dark:bg-[#111D30] border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500] shadow-xs"
             />
           </div>
 
-          <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 justify-end">
+          <div className="flex items-center gap-1.5 w-full sm:w-auto shrink-0 justify-end">
             <button
               type="button"
               onClick={() => setIsDriveModalOpen(true)}
-              className={`px-3 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-1.5 border shadow-xs transition-colors ${
+              className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border shadow-xs transition-colors cursor-pointer ${
                 isGoogleDriveConnected
                   ? 'bg-blue-50 dark:bg-blue-950/40 text-[#0C4A9E] dark:text-[#7FAFFF] border-blue-200 dark:border-blue-800'
                   : 'bg-white dark:bg-[#111D30] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-[#0C4A9E]'
               }`}
               title="Google Drive ሰነዶች ማመሳከሪያ"
             >
-              <HardDrive className="w-4 h-4 text-[#0C4A9E] dark:text-[#7FAFFF]" />
-              <span className="hidden sm:inline">Google Drive</span>
+              <HardDrive className="w-3.5 h-3.5 text-[#0C4A9E] dark:text-[#7FAFFF]" />
+              <span>Drive</span>
               {isGoogleDriveConnected && <span className="w-2 h-2 rounded-full bg-emerald-500" />}
             </button>
 
             <button
               type="button"
               onClick={onCreateWorkClick}
-              className="px-4 py-2.5 rounded-2xl bg-[#0C4A9E] hover:bg-[#072958] text-white text-xs font-bold shadow-sm flex items-center gap-1.5"
+              className="px-3 py-2 rounded-xl bg-[#0C4A9E] hover:bg-[#072958] text-white text-xs font-bold shadow-xs flex items-center gap-1.5 cursor-pointer"
             >
-              <Plus className="w-4 h-4" />
-              <span>አዲስ መዝግብ</span>
+              <Plus className="w-3.5 h-3.5" />
+              <span>{selectedDeptFilter === 'ehud_merha_gibir' ? 'ሰነድ ጨምር' : 'አዲስ መዝግብ'}</span>
             </button>
           </div>
         </div>
@@ -407,56 +573,208 @@ export const ArchiveScreen: React.FC<{
           </span>
         </div>
 
-        {/* View 1: Works Grid */}
+        {/* View 1: Works Grid + Ehud Operational Archive Index */}
         {viewMode === 'works' && (
-          <div>
+          <div className="space-y-6">
+            {/* Ehud Operational Archive Index when Ehud Merha Gibir is selected */}
+            {selectedDeptFilter === 'ehud_merha_gibir' && ehudOperationalIndex.totalCount > 0 && (
+              <div className="space-y-4">
+                {/* Official 2019 PDF Bundles */}
+                {ehudOperationalIndex.pdfs.length > 0 && (
+                  <div className="space-y-2.5">
+                    <h3 className="text-xs font-bold text-[#0C4A9E] dark:text-[#7FAFFF] flex items-center gap-1.5 px-1">
+                      <BookOpen className="w-4 h-4 text-[#B88500]" />
+                      <span>ኦፊሴላዊ የ2019 ዓ.ም. የተቀናጁ የዕቅድ ጥቅሎች ({ehudOperationalIndex.pdfs.length})</span>
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {ehudOperationalIndex.pdfs.map((pkg) => (
+                        <div
+                          key={pkg.id}
+                          className="p-3.5 rounded-2xl bg-white dark:bg-[#111D30] border border-[#B88500]/30 shadow-xs flex flex-col justify-between gap-2.5"
+                        >
+                          <div>
+                            <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-[#0C4A9E]/10 text-[#0C4A9E] dark:text-[#7FAFFF] mb-1">
+                              {DIVISIONS[pkg.division]?.titleAmharic || pkg.division} • {pkg.totalPages} ገጽ
+                            </span>
+                            <h4 className="text-xs font-bold font-serif-ethiopic text-slate-900 dark:text-slate-100 leading-snug">
+                              {pkg.title}
+                            </h4>
+                            <p className="text-[11px] text-slate-500 mt-1 line-clamp-2">{pkg.subtitle}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedPdfPkg(pkg)}
+                            className="w-full py-1.5 rounded-xl bg-[#0C4A9E] hover:bg-[#072958] text-white text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>ሰነዱን ክፈት (PDF)</span>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Daily Program Sheets */}
+                {ehudOperationalIndex.sheets.length > 0 && (
+                  <div className="space-y-2.5">
+                    <h3 className="text-xs font-bold text-[#0C4A9E] dark:text-[#7FAFFF] flex items-center gap-1.5 px-1">
+                      <Calendar className="w-4 h-4 text-[#B88500]" />
+                      <span>ዝርዝር የእሁድ ዕለታዊ መርሐ ግብር ሉሆች ({ehudOperationalIndex.sheets.length})</span>
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {ehudOperationalIndex.sheets.slice(0, 12).map((sheet) => (
+                        <ManuscriptBox key={sheet.id} className="p-3.5 space-y-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 text-[#966C00] dark:text-[#FFD54F] border border-[#B88500]/30">
+                                {DIVISIONS[sheet.division]?.titleAmharic} • {sheet.dateAmharic}
+                              </span>
+                              <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 mt-1">
+                                {sheet.mainTopic}
+                              </h4>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => downloadDailyPlanPdf(sheet)}
+                              className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-[#0C4A9E] hover:text-white text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+                              title="PDF አውርድ"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2.5 text-[11px] text-slate-500">
+                            <span className="flex items-center gap-1">
+                              <Clock className="w-3 h-3 text-[#B88500]" />
+                              {sheet.timeAmharic}
+                            </span>
+                            {sheet.leader && <span>መሪ፦ {sheet.leader}</span>}
+                            <span>{sheet.slots.length} ክፍለ-ጊዜያት</span>
+                          </div>
+                        </ManuscriptBox>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Annual Targets */}
+                {ehudOperationalIndex.targets.length > 0 && (
+                  <div className="space-y-2.5">
+                    <h3 className="text-xs font-bold text-[#0C4A9E] dark:text-[#7FAFFF] flex items-center gap-1.5 px-1">
+                      <Target className="w-4 h-4 text-[#B88500]" />
+                      <span>የ2019 ዓመታዊ ተግባራዊ ዕቅድ ዒላማዎች ({ehudOperationalIndex.targets.length})</span>
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {ehudOperationalIndex.targets.map((tgt) => (
+                        <div
+                          key={tgt.id}
+                          className="p-3.5 rounded-2xl bg-white dark:bg-[#111D30] border border-slate-200 dark:border-slate-800 space-y-1.5"
+                        >
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className="font-mono font-bold px-2 py-0.5 rounded bg-[#0C4A9E]/10 text-[#0C4A9E] dark:text-[#7FAFFF]">
+                              {DIVISIONS[tgt.division]?.titleAmharic} • #{tgt.code}
+                            </span>
+                            <span className="text-slate-500">{tgt.timelineMonths}</span>
+                          </div>
+                          <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                            {tgt.titleAmharic}
+                          </h4>
+                          <p className="text-[11px] text-slate-500 line-clamp-2">{tgt.targetMetric}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Organizer Squads */}
+                {ehudOperationalIndex.squads.length > 0 && (
+                  <div className="space-y-2.5">
+                    <h3 className="text-xs font-bold text-[#0C4A9E] dark:text-[#7FAFFF] flex items-center gap-1.5 px-1">
+                      <Users className="w-4 h-4 text-[#B88500]" />
+                      <span>የአዘጋጆችና የመምህራን ምድቦች ({ehudOperationalIndex.squads.length})</span>
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {ehudOperationalIndex.squads.map((sq) => (
+                        <div
+                          key={sq.id}
+                          className="p-3.5 rounded-2xl bg-white dark:bg-[#111D30] border border-slate-200 dark:border-slate-800 space-y-1.5"
+                        >
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className="font-bold px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 text-[#966C00] dark:text-[#FFD54F]">
+                              {DIVISIONS[sq.division]?.titleAmharic} • ምድብ {sq.squadNumber}
+                            </span>
+                            <span className="text-slate-500">{sq.members.length} አባላት</span>
+                          </div>
+                          <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                            {sq.nameAmharic}
+                          </h4>
+                          <p className="text-[11px] text-slate-500">አስተባባሪ፦ {sq.coordinatorName}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <HaragDivider />
+              </div>
+            )}
+
             {filteredWorks.length === 0 ? (
-              <ManuscriptBox className="p-8 text-center text-slate-500 space-y-2">
-                <FileText className="w-10 h-10 mx-auto text-[#B88500]/50" />
-                <p className="text-xs font-serif-ethiopic font-bold text-slate-700 dark:text-slate-200">
-                  {selectedCategoryFilter !== 'ALL'
-                    ? 'በዚህ ዘርፍ የተመዘገበ ሰነድ አልተገኘም።'
-                    : 'በዚህ ክፍል እስካሁን የተመዘገበ ሰነድ አልተገኘም።'}
-                </p>
-                <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
-                  {selectedCategoryFilter !== 'ALL' && (
+              ehudOperationalIndex.totalCount === 0 && (
+                <ManuscriptBox className="p-8 text-center text-slate-500 space-y-2">
+                  <FileText className="w-10 h-10 mx-auto text-[#B88500]/50" />
+                  <p className="text-xs font-serif-ethiopic font-bold text-slate-700 dark:text-slate-200">
+                    {selectedCategoryFilter !== 'ALL'
+                      ? 'በዚህ ዘርፍ የተመዘገበ ሰነድ አልተገኘም።'
+                      : 'በዚህ ክፍል እስካሁን የተመዘገበ ሰነድ አልተገኘም።'}
+                  </p>
+                  <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+                    {selectedCategoryFilter !== 'ALL' && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCategoryFilter('ALL')}
+                        className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300"
+                      >
+                        የክፍሉን ሁሉንም ሰነዶች አሳይ
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() => setSelectedCategoryFilter('ALL')}
-                      className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300"
+                      onClick={onCreateWorkClick}
+                      className="px-3.5 py-1.5 rounded-xl bg-[#0C4A9E] text-white text-xs font-bold"
                     >
-                      የክፍሉን ሁሉንም ሰነዶች አሳይ
+                      ለዚህ ክፍል አዲስ ሰነድ መዝግብ +
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={onCreateWorkClick}
-                    className="px-3.5 py-1.5 rounded-xl bg-[#0C4A9E] text-white text-xs font-bold"
-                  >
-                    ለዚህ ክፍል አዲስ ሰነድ መዝግብ +
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsDriveModalOpen(true)}
-                    className="px-3.5 py-1.5 rounded-xl border border-blue-300 text-blue-700 dark:text-blue-300 text-xs font-bold"
-                  >
-                    ከ Google Drive አስመጣ
-                  </button>
-                </div>
-              </ManuscriptBox>
+                    <button
+                      type="button"
+                      onClick={() => setIsDriveModalOpen(true)}
+                      className="px-3.5 py-1.5 rounded-xl border border-blue-300 text-blue-700 dark:text-blue-300 text-xs font-bold"
+                    >
+                      ከ Google Drive አስመጣ
+                    </button>
+                  </div>
+                </ManuscriptBox>
+              )
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                {filteredWorks.map((work) => (
-                  <WorkCard
-                    key={work.id}
-                    work={work}
-                    onClick={() => {
-                      if (onWorkClick) onWorkClick(work.id);
-                    }}
-                    onBookmarkClick={() => toggleBookmark(work.id)}
-                    onQuickPreviewClick={() => setPreviewWork(work)}
-                  />
-                ))}
+              <div className="space-y-3">
+                {selectedDeptFilter === 'ehud_merha_gibir' && (
+                  <h3 className="text-xs font-bold text-slate-600 dark:text-slate-300 px-1">
+                    በተጠቃሚዎች የተመዘገቡ የመርሐ ግብር ሰነዶችና ቃለ-ጉባኤዎች ({filteredWorks.length})
+                  </h3>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                  {filteredWorks.map((work) => (
+                    <WorkCard
+                      key={work.id}
+                      work={work}
+                      onClick={() => {
+                        if (onWorkClick) onWorkClick(work.id);
+                      }}
+                      onBookmarkClick={() => toggleBookmark(work.id)}
+                      onQuickPreviewClick={() => setPreviewWork(work)}
+                    />
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -500,6 +818,12 @@ export const ArchiveScreen: React.FC<{
         onToggleBookmark={(workId) => {
           toggleBookmark(workId);
         }}
+      />
+
+      {/* Official Ehud Plan PDF Viewer Modal */}
+      <SundayPlanPdfViewerModal
+        packageData={selectedPdfPkg}
+        onClose={() => setSelectedPdfPkg(null)}
       />
     </div>
   );
