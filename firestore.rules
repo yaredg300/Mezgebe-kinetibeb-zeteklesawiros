@@ -29,10 +29,10 @@ service cloud.firestore {
     }
 
     function isSuperAdmin() {
-      return isSignedIn() && (
-        (request.auth.token.email in ['goferconstruction@gmail.com', 'finalizedyosef@gmail.com', 'yaredcotm@gmail.com', 'admin@teklesawiros.org'] && request.auth.token.email_verified == true) ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
-      );
+      return isSignedIn() &&
+        request.auth.token.email != null &&
+        request.auth.token.email.lower() == 'goferconstruction@gmail.com' &&
+        request.auth.token.email_verified == true;
     }
 
     function isAdmin() {
@@ -88,9 +88,9 @@ service cloud.firestore {
 
     // 2. Admins collection
     match /admins/{adminId} {
-      allow get: if isSignedIn();
-      allow list: if isAdmin();
-      allow create, update, delete: if isAdmin() && isValidId(adminId);
+      allow get: if isSuperAdmin() && isValidId(adminId);
+      allow list: if isSuperAdmin();
+      allow create, update, delete: if isSuperAdmin() && isValidId(adminId);
     }
 
     // 3. User Profiles collection
@@ -574,7 +574,7 @@ service cloud.firestore {
              ]) &&
              data.keys().hasOnly([
                'id', 'division', 'monthAmharic', 'dayNumber', 'dateAmharic',
-               'mainTopic', 'leader', 'presenterOrTeacher', 'timeAmharic',
+               'mainTopic', 'leader', 'presenterOrTeacher', 'presenterContact', 'timeAmharic',
                'purpose', 'slots', 'preProgramNeeds', 'preProgramChecklistState',
                'squadName', 'updatedAt', 'updatedBy', 'postProgramStats'
              ]) &&
@@ -586,6 +586,7 @@ service cloud.firestore {
              data.mainTopic is string && data.mainTopic.size() > 0 && data.mainTopic.size() <= 250 &&
              data.leader is string && data.leader.size() > 0 && data.leader.size() <= 200 &&
              data.presenterOrTeacher is string && data.presenterOrTeacher.size() > 0 && data.presenterOrTeacher.size() <= 200 &&
+             (!('presenterContact' in data) || (data.presenterContact is string && data.presenterContact.size() <= 100)) &&
              data.timeAmharic is string && data.timeAmharic.size() > 0 && data.timeAmharic.size() <= 100 &&
              data.purpose is string && data.purpose.size() <= 1500 &&
              data.slots is list && data.slots.size() <= 30 &&
@@ -631,7 +632,7 @@ service cloud.firestore {
              ]) &&
              data.keys().hasOnly([
                'id', 'departmentId', 'division', 'planScope', 'title', 'monthAmharic',
-               'targetDateAmharic', 'squadName', 'presenterName', 'scriptureRef',
+               'targetDateAmharic', 'squadName', 'presenterName', 'presenterContact', 'scriptureRef',
                'goal', 'resourcesNeeded', 'status', 'createdBy', 'createdByName',
                'createdAt', 'updatedAt'
              ]) &&
@@ -644,6 +645,7 @@ service cloud.firestore {
              data.targetDateAmharic is string && data.targetDateAmharic.size() > 0 && data.targetDateAmharic.size() <= 100 &&
              (!('squadName' in data) || (data.squadName is string && data.squadName.size() <= 150)) &&
              (!('presenterName' in data) || (data.presenterName is string && data.presenterName.size() <= 150)) &&
+             (!('presenterContact' in data) || (data.presenterContact is string && data.presenterContact.size() <= 100)) &&
              (!('scriptureRef' in data) || (data.scriptureRef is string && data.scriptureRef.size() <= 150)) &&
              data.goal is string && data.goal.size() <= 1500 &&
              data.resourcesNeeded is list && data.resourcesNeeded.size() <= 30 &&
@@ -680,7 +682,7 @@ service cloud.firestore {
                         isApprovedMember('ehud_merha_gibir') &&
                         incoming().diff(existing()).affectedKeys().hasOnly([
                           'division', 'planScope', 'title', 'monthAmharic', 'targetDateAmharic',
-                          'squadName', 'presenterName', 'scriptureRef', 'goal',
+                          'squadName', 'presenterName', 'presenterContact', 'scriptureRef', 'goal',
                           'resourcesNeeded', 'status', 'updatedAt'
                         ])
                       )

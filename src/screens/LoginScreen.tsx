@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Mail,
   Lock,
@@ -23,6 +23,12 @@ import {
   Hash,
 } from 'lucide-react';
 import { useArchive } from '../context/ArchiveContext';
+import { AuthErrorAlert } from '../components/AuthErrorAlert';
+import {
+  getAuthErrorMessageAmharic,
+  PRIMARY_FIREBASE_ADMIN_EMAIL,
+  isMasterOperatorEmail,
+} from '../firebase/config';
 import {
   DIVISIONS,
   USER_ROLES,
@@ -49,6 +55,10 @@ export const LoginScreen: React.FC<{
     registerWithEmail,
     loginWithEmail,
     resetPasswordEmail,
+    isMasterOperator,
+    assignedDepartmentId,
+    isDepartmentLocked,
+    lockDepartmentChoice,
   } = useArchive();
 
   const [isRegisterMode, setIsRegisterMode] = useState<boolean>(false);
@@ -83,40 +93,24 @@ export const LoginScreen: React.FC<{
   const divisionInfo = DIVISIONS[selectedDivision];
   const selectedDeptInfo = departmentsList.find((d) => d.id === selectedDeptId) || departmentsList[0];
 
-  const mapAuthErrorToAmharic = (err: any): string => {
-    const code = err?.code || '';
-    if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
-      return '';
+  // Sync selected gate when non-master user has a locked/assigned department
+  useEffect(() => {
+    if (!isMasterOperator && assignedDepartmentId) {
+      setSelectedDeptId(assignedDepartmentId);
     }
-    if (code === 'auth/popup-blocked') {
-      return 'የGoogle መግቢያ መስኮት በአሳሽዎ ታግዷል። እባክዎ Pop-up ይፍቀዱ ወይም በኢሜይል ይግቡ።';
-    }
-    if (code === 'auth/email-already-in-use') {
-      return 'ይህ የኢሜይል አድራሻ አስቀድሞ ተመዝግቧል። እባክዎ በቀጥታ «ግባ» የሚለውን ይምረጡ።';
-    }
-    if (code === 'auth/invalid-email') {
-      return 'እባክዎ ትክክለኛ የኢሜይል አድራሻ ያስገቡ።';
-    }
-    if (code === 'auth/weak-password') {
-      return 'የይለፍ ቃል ቢያንስ 6 ፊደላት ወይም ቁጥሮች መሆን አለበት።';
-    }
-    if (
-      code === 'auth/wrong-password' ||
-      code === 'auth/user-not-found' ||
-      code === 'auth/invalid-credential'
-    ) {
-      return 'የተሳሳተ ኢሜይል ወይም የይለፍ ቃል። እባክዎ እንደገና ይሞክሩ።';
-    }
-    if (code === 'auth/operation-not-allowed') {
-      return 'በ Firebase Console ውስጥ Email/Password መግቢያ ገና አልበራም። እባክዎ በ Console > Authentication ውስጥ ያብሩት።';
-    }
-    if (code === 'auth/too-many-requests') {
-      return 'ብዙ ሙከራዎች ተደርገዋል። እባክዎ ጥቂት ደቂቃዎች ቆይተው እንደገና ይሞክሩ።';
-    }
-    return err?.message || 'ያልታወቀ ስህተት አጋጥሟል። እባክዎ እንደገና ይሞክሩ።';
-  };
+  }, [isMasterOperator, assignedDepartmentId]);
 
   const handleSelectDepartmentGate = (deptId: SundaySchoolDepartment) => {
+    if (isDepartmentLocked(deptId)) {
+      const lockedTitle =
+        departmentsList.find((d) => d.id === assignedDepartmentId)?.titleAmharic ||
+        assignedDepartmentId;
+      setErrorMessage(
+        `ይህ ክፍል ተቆልፏል! ለአንድ አገልጋይ አንድ ክፍል («${lockedTitle}») ብቻ ይፈቀዳል። ሁሉንም ክፍሎች መክፈት የሚችለው ዋና አስተዳዳሪ (${PRIMARY_FIREBASE_ADMIN_EMAIL}) ብቻ ነው።`
+      );
+      return;
+    }
+    setErrorMessage(null);
     setSelectedDeptId(deptId);
     setActiveDepartment(deptId);
   };
@@ -189,6 +183,11 @@ export const LoginScreen: React.FC<{
         setSuccessMessage(`እንኳን ደህና መጡ! ወደ «${selectedDeptInfo?.titleAmharic || 'ክፍል'}» በር በመግባት ላይ...`);
       }
 
+      // Lock chosen department for non-master users once entering/registering
+      if (!isMasterOperator) {
+        lockDepartmentChoice(selectedDeptId);
+      }
+
       setTimeout(() => {
         onLoginSuccess(selectedDeptId);
       }, 700);
@@ -211,7 +210,7 @@ export const LoginScreen: React.FC<{
       } else {
         console.error('Auth error:', err);
       }
-      setErrorMessage(mapAuthErrorToAmharic(err));
+      setErrorMessage(getAuthErrorMessageAmharic(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -226,7 +225,7 @@ export const LoginScreen: React.FC<{
       setSuccessMessage(`የይለፍ ቃል መቀየሪያ ማስፈንጠሪያ ወደ ${resetEmail} ተልኳል!`);
       setShowForgotModal(false);
     } catch (err: any) {
-      setErrorMessage(mapAuthErrorToAmharic(err));
+      setErrorMessage(getAuthErrorMessageAmharic(err));
     } finally {
       setIsResetting(false);
     }
@@ -326,32 +325,43 @@ export const LoginScreen: React.FC<{
               </span>
             </div>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-3 leading-relaxed">
-              እያንዳንዱ የሰንበት ትምህርት ቤት ክፍል ራሱን ችሎ የሚሰራ በመሆኑ፣ ለመግባት የሚፈልጉትን የክፍል በር ይምረጡ፦
+              {!isMasterOperator && assignedDepartmentId
+                ? `ለአንድ አገልጋይ አንድ ክፍል ብቻ ይፈቀዳል። የተመረጡ ሌሎች ክፍሎች ተቆልፈዋል (ሁሉንም ክፍሎች ማየት የሚችለው ዋና አስተዳዳሪ ${PRIMARY_FIREBASE_ADMIN_EMAIL} ብቻ ነው)፦`
+                : 'እያንዳንዱ የሰንበት ትምህርት ቤት ክፍል ራሱን ችሎ የሚሰራ በመሆኑ፣ ለመግባት የሚፈልጉትን የክፍል በር ይምረጡ፦'}
             </p>
 
             {/* Department Grid / Cards */}
             <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1 no-scrollbar">
               {departmentsList.map((dept) => {
                 const isSelected = selectedDeptId === dept.id;
+                const locked = !isMasterOperator && isDepartmentLocked(dept.id);
                 return (
                   <button
                     key={dept.id}
                     type="button"
                     onClick={() => handleSelectDepartmentGate(dept.id)}
+                    aria-disabled={locked}
                     className={`p-2.5 rounded-xl border text-left transition-all duration-150 flex flex-col justify-between ${
-                      isSelected
-                        ? 'border-[#0C4A9E] dark:border-[#7FAFFF] bg-blue-50/70 dark:bg-blue-950/40 shadow-xs ring-1 ring-[#0C4A9E]'
-                        : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111D30] hover:border-slate-300'
+                      locked
+                        ? 'border-slate-200 dark:border-slate-800 bg-slate-100/80 dark:bg-slate-900/60 opacity-60 cursor-not-allowed'
+                        : isSelected
+                          ? 'border-[#0C4A9E] dark:border-[#7FAFFF] bg-blue-50/70 dark:bg-blue-950/40 shadow-xs ring-1 ring-[#0C4A9E]'
+                          : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111D30] hover:border-slate-300'
                     }`}
                   >
                     <div className="flex items-start justify-between gap-1 mb-1">
                       <div
                         className="p-1.5 rounded-lg text-white shrink-0"
-                        style={{ backgroundColor: dept.accentColor || '#0C4A9E' }}
+                        style={{ backgroundColor: locked ? '#94A3B8' : dept.accentColor || '#0C4A9E' }}
                       >
                         {renderDeptIcon(dept.iconName, 'w-3.5 h-3.5')}
                       </div>
-                      {isSelected ? (
+                      {locked ? (
+                        <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-slate-500 dark:text-slate-400 bg-slate-200/80 dark:bg-slate-800 px-1.5 py-0.5 rounded-full">
+                          <Lock className="w-2.5 h-2.5" />
+                          <span>የተቆለፈ</span>
+                        </span>
+                      ) : isSelected ? (
                         <CheckCircle className="w-4 h-4 text-[#0C4A9E] dark:text-[#7FAFFF] shrink-0 fill-current" />
                       ) : (
                         <span className="w-2 h-2 rounded-full bg-slate-200 dark:bg-slate-700" />
@@ -363,7 +373,7 @@ export const LoginScreen: React.FC<{
                         {dept.shortTitleAmharic || dept.titleAmharic}
                       </div>
                       <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
-                        {dept.coordinatorName || 'የክፍሉ አስተባባሪ'}
+                        {locked ? 'በሌላ ክፍል ተቆልፏል' : dept.coordinatorName || 'የክፍሉ አስተባባሪ'}
                       </div>
                     </div>
                   </button>
@@ -432,13 +442,16 @@ export const LoginScreen: React.FC<{
 
           {/* Error Banner */}
           {errorMessage && (
-            <div className="mb-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-700 text-xs font-medium text-rose-800 dark:text-rose-300 space-y-2">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
-                <span>{errorMessage}</span>
-              </div>
+            <div className="mb-4 space-y-2">
+              <AuthErrorAlert
+                message={errorMessage}
+                onDismiss={() => {
+                  setErrorMessage(null);
+                  setShowSwitchToLoginHint(false);
+                }}
+              />
               {showSwitchToLoginHint && (
-                <div className="pl-6">
+                <div>
                   <button
                     type="button"
                     onClick={() => {
@@ -541,18 +554,23 @@ export const LoginScreen: React.FC<{
                     </label>
                     <select
                       value={selectedDeptId}
+                      disabled={Boolean(!isMasterOperator && assignedDepartmentId)}
                       onChange={(e) => {
                         const val = e.target.value as SundaySchoolDepartment;
+                        if (isDepartmentLocked(val)) return;
                         setSelectedDeptId(val);
                         setActiveDepartment(val);
                       }}
-                      className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500]"
+                      className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:border-[#B88500] disabled:opacity-70 disabled:cursor-not-allowed"
                     >
-                      {departmentsList.map((dept) => (
-                        <option key={dept.id} value={dept.id}>
-                          {dept.titleAmharic}
-                        </option>
-                      ))}
+                      {departmentsList.map((dept) => {
+                        const locked = !isMasterOperator && isDepartmentLocked(dept.id);
+                        return (
+                          <option key={dept.id} value={dept.id} disabled={locked}>
+                            {locked ? `🔒 ${dept.titleAmharic}` : dept.titleAmharic}
+                          </option>
+                        );
+                      })}
                     </select>
                   </div>
 
@@ -742,15 +760,15 @@ export const LoginScreen: React.FC<{
                 setActiveDepartment(selectedDeptId);
                 const user = await signInWithGoogle();
                 if (user) {
+                  if (!isMasterOperatorEmail(user.email)) {
+                    lockDepartmentChoice(selectedDeptId);
+                  }
                   onLoginSuccess(selectedDeptId);
                 }
               } catch (err: any) {
-                const code = err?.code || '';
-                if (
-                  code !== 'auth/popup-closed-by-user' &&
-                  code !== 'auth/cancelled-popup-request'
-                ) {
-                  setErrorMessage(mapAuthErrorToAmharic(err));
+                const msg = getAuthErrorMessageAmharic(err);
+                if (msg) {
+                  setErrorMessage(msg);
                 }
               } finally {
                 setIsLoadingGoogle(false);
@@ -782,6 +800,9 @@ export const LoginScreen: React.FC<{
           <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 text-center">
             <button
               onClick={() => {
+                if (!isMasterOperator) {
+                  lockDepartmentChoice(selectedDeptId);
+                }
                 setActiveDepartment(selectedDeptId);
                 onContinueAsGuest(selectedDeptId);
               }}

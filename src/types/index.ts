@@ -500,6 +500,7 @@ export interface SundayTimetableSlot {
   timeRange: string;
   slotTitle: string;
   inCharge?: string;
+  inChargeContact?: string;
   notes?: string;
   executionStatus?: SundaySlotExecutionStatus;
   actualTimeRange?: string;
@@ -515,6 +516,7 @@ export interface SundayDailyPlanSheet {
   mainTopic: string;
   leader: string;
   presenterOrTeacher: string;
+  presenterContact?: string;
   timeAmharic: string;
   purpose: string;
   slots: SundayTimetableSlot[];
@@ -769,6 +771,7 @@ export interface EhudProgramPlan {
   targetDateAmharic: string;
   squadName?: string;
   presenterName?: string;
+  presenterContact?: string;
   scriptureRef?: string;
   goal: string;
   resourcesNeeded: string[];

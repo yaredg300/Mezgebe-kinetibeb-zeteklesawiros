@@ -63,10 +63,11 @@ import {
   auth,
   storage,
   googleProvider,
+  masterOperatorGoogleProvider,
   googleDriveProvider,
   getCachedGoogleToken,
   setCachedGoogleToken,
-  SUPER_ADMIN_EMAILS,
+  isMasterOperatorEmail,
 } from '../firebase/config';
 import {
   collection,
@@ -83,6 +84,8 @@ import {
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import {
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut,
   onAuthStateChanged,
   createUserWithEmailAndPassword,
@@ -941,6 +944,7 @@ interface ArchiveContextType {
     targetDateAmharic: string;
     squadName?: string;
     presenterName?: string;
+    presenterContact?: string;
     scriptureRef?: string;
     goal: string;
     resourcesNeeded: string[];
@@ -1088,7 +1092,8 @@ interface ArchiveContextType {
   isMasterOperator: boolean;
   assignedDepartmentId: SundaySchoolDepartment | null;
   isDepartmentLocked: (deptId: SundaySchoolDepartment) => boolean;
-  loginAsMasterOperator: () => Promise<void>;
+  lockDepartmentChoice: (dept: SundaySchoolDepartment) => boolean;
+  loginAsMasterOperator: () => Promise<FirebaseUser | null>;
   isDepartmentPortalLocked: boolean;
   userMemberships: DepartmentMembership[];
   approvedMemberships: DepartmentMembership[];
@@ -1176,8 +1181,33 @@ export const ArchiveContext = createContext<ArchiveContextType | null>(null);
 
 export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [categories] = useState<WorkCategory[]>(INITIAL_CATEGORIES);
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState<boolean>(false);
+  const [isAdminDocVerified, setIsAdminDocVerified] = useState<boolean>(false);
+
+  // Sole Master Operator & Super Admin: exclusively verified goferconstruction@gmail.com
+  const isSuperAdmin = Boolean(
+    firebaseUser &&
+      firebaseUser.emailVerified &&
+      isMasterOperatorEmail(firebaseUser.email)
+  );
+  const isMasterOperator = isSuperAdmin;
+  const isDepartmentPortalLocked = !isSuperAdmin;
+
+  const [lockedDepartmentId, setLockedDepartmentId] = useState<SundaySchoolDepartment | null>(() => {
+    try {
+      const saved = localStorage.getItem('mezgebe_locked_dept');
+      if (saved) return saved as SundaySchoolDepartment;
+    } catch {
+      // ignore
+    }
+    return null;
+  });
+
   const getInitialActiveDept = (): SundaySchoolDepartment => {
     try {
+      const locked = localStorage.getItem('mezgebe_locked_dept');
+      if (locked) return locked as SundaySchoolDepartment;
       const saved = localStorage.getItem('mezgebe_active_dept');
       if (saved) return saved as SundaySchoolDepartment;
     } catch {
@@ -1186,44 +1216,80 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return 'kinetibeb';
   };
   const [activeDepartment, setActiveDepartmentState] = useState<SundaySchoolDepartment>(getInitialActiveDept);
-  const isDepartmentPortalLocked = activeDepartment === 'ehud_merha_gibir';
 
-  const [works, setWorks] = useState<WorkItem[]>(() =>
-    getInitialActiveDept() === 'ehud_merha_gibir'
-      ? INITIAL_WORKS.filter((w) => w.departmentId === 'ehud_merha_gibir')
-      : INITIAL_WORKS
-  );
+  const [works, setWorks] = useState<WorkItem[]>(() => {
+    const initialDept = getInitialActiveDept();
+    return INITIAL_WORKS.filter((w) =>
+      w.departmentId ? w.departmentId === initialDept : initialDept === 'kinetibeb'
+    );
+  });
   const [writers] = useState<Writer[]>(INITIAL_WRITERS);
-  const [members, setMembers] = useState<ChurchMember[]>(() =>
-    getInitialActiveDept() === 'ehud_merha_gibir'
-      ? INITIAL_MEMBERS.filter((m) => m.departmentId === 'ehud_merha_gibir')
-      : INITIAL_MEMBERS
-  );
-  const [events, setEvents] = useState<CulturalEvent[]>(() =>
-    getInitialActiveDept() === 'ehud_merha_gibir'
-      ? INITIAL_EVENTS.filter((e) => e.departmentId === 'ehud_merha_gibir')
-      : INITIAL_EVENTS
-  );
+  const [members, setMembers] = useState<ChurchMember[]>(() => {
+    const initialDept = getInitialActiveDept();
+    return INITIAL_MEMBERS.filter((m) =>
+      m.departmentId ? m.departmentId === initialDept : initialDept === 'kinetibeb'
+    );
+  });
+  const [events, setEvents] = useState<CulturalEvent[]>(() => {
+    const initialDept = getInitialActiveDept();
+    return INITIAL_EVENTS.filter((e) =>
+      e.departmentId ? e.departmentId === initialDept : initialDept === 'kinetibeb'
+    );
+  });
 
-  const setActiveDepartment = (dept: SundaySchoolDepartment) => {
-    // Non-Super-Admin signed-in users with approved memberships cannot switch into unjoined departments
-    if (firebaseUser && !isSuperAdmin) {
-      const userApprovedDepts = departmentMemberships.filter(
-        (m) => m.userId === firebaseUser.uid && m.status === 'APPROVED'
-      );
-      if (
-        userApprovedDepts.length > 0 &&
-        !userApprovedDepts.some((m) => m.departmentId === dept)
-      ) {
-        return;
-      }
-    }
+  const persistActiveAndLockedDept = (dept: SundaySchoolDepartment, lockChoice: boolean) => {
     setActiveDepartmentState(dept);
     try {
       localStorage.setItem('mezgebe_active_dept', dept);
+      if (lockChoice) {
+        localStorage.setItem('mezgebe_locked_dept', dept);
+      }
     } catch {
       // ignore
     }
+    if (lockChoice) {
+      setLockedDepartmentId(dept);
+    }
+  };
+
+  const lockDepartmentChoice = (dept: SundaySchoolDepartment): boolean => {
+    if (isSuperAdmin) {
+      setActiveDepartmentState(dept);
+      try {
+        localStorage.setItem('mezgebe_active_dept', dept);
+      } catch {
+        // ignore
+      }
+      return true;
+    }
+    if (firebaseUser) {
+      const existingMems = departmentMemberships.filter((m) => m.userId === firebaseUser.uid);
+      if (existingMems.length > 0 && !existingMems.some((m) => m.departmentId === dept)) {
+        return false;
+      }
+    }
+    if (lockedDepartmentId && lockedDepartmentId !== dept) {
+      return false;
+    }
+    persistActiveAndLockedDept(dept, true);
+    return true;
+  };
+
+  const setActiveDepartment = (dept: SundaySchoolDepartment) => {
+    if (!isSuperAdmin) {
+      if (firebaseUser) {
+        const userMems = departmentMemberships.filter((m) => m.userId === firebaseUser.uid);
+        if (userMems.length > 0 && !userMems.some((m) => m.departmentId === dept)) {
+          return;
+        }
+      }
+      if (lockedDepartmentId && lockedDepartmentId !== dept) {
+        return;
+      }
+      persistActiveAndLockedDept(dept, true);
+      return;
+    }
+    persistActiveAndLockedDept(dept, false);
   };
 
   const INITIAL_DAILY_PLAN_SHEETS: SundayDailyPlanSheet[] = [
@@ -1276,6 +1342,10 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const mergedSheet: SundayDailyPlanSheet = {
       ...existing,
       ...updates,
+      presenterContact:
+        updates.presenterContact !== undefined
+          ? updates.presenterContact.trim().slice(0, 100) || undefined
+          : existing.presenterContact,
       updatedAt: new Date().toISOString(),
       updatedBy: currentUser.fullName,
     };
@@ -1290,8 +1360,7 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       await setDoc(
         doc(db, 'sunday_daily_sheets', sheetId),
-        sanitizeFirestorePayload(mergedSheet),
-        { merge: true }
+        sanitizeFirestorePayload(mergedSheet)
       );
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `sunday_daily_sheets/${sheetId}`);
@@ -1597,6 +1666,7 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     targetDateAmharic: string;
     squadName?: string;
     presenterName?: string;
+    presenterContact?: string;
     scriptureRef?: string;
     goal: string;
     resourcesNeeded: string[];
@@ -1614,6 +1684,9 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       targetDateAmharic: data.targetDateAmharic.trim().slice(0, 100),
       squadName: data.squadName?.trim() ? data.squadName.trim().slice(0, 150) : undefined,
       presenterName: data.presenterName?.trim() ? data.presenterName.trim().slice(0, 150) : undefined,
+      presenterContact: data.presenterContact?.trim()
+        ? data.presenterContact.trim().slice(0, 100)
+        : undefined,
       scriptureRef: data.scriptureRef?.trim() ? data.scriptureRef.trim().slice(0, 150) : undefined,
       goal: data.goal.trim().slice(0, 1500),
       resourcesNeeded: data.resourcesNeeded.map((r) => r.trim()).filter(Boolean).slice(0, 30),
@@ -1664,8 +1737,12 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
           : existing.squadName,
       presenterName:
         updates.presenterName !== undefined
-          ? updates.presenterName.trim() || undefined
+          ? updates.presenterName.trim().slice(0, 150) || undefined
           : existing.presenterName,
+      presenterContact:
+        updates.presenterContact !== undefined
+          ? updates.presenterContact.trim().slice(0, 100) || undefined
+          : existing.presenterContact,
       scriptureRef:
         updates.scriptureRef !== undefined
           ? updates.scriptureRef.trim() || undefined
@@ -1963,9 +2040,6 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
     return 'LIGHT'; // STRICTLY DEFAULT TO LIGHT MODE
   });
-  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
-  const [isAuthReady, setIsAuthReady] = useState<boolean>(false);
-  const [isAdminDocVerified, setIsAdminDocVerified] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const isRegisteringRef = useRef<boolean>(false);
 
@@ -2084,24 +2158,17 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // 1. Firebase Auth listener
   useEffect(() => {
+    // Complete any pending redirect sign-in result cleanly if triggered in top-level tab
+    void getRedirectResult(auth).catch((err) => {
+      console.warn('Redirect sign-in notice:', err?.code || err?.message);
+    });
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
-        const normalizedEmail = user.email?.toLowerCase() || '';
         const isVerifiedMasterEmail = Boolean(
-          user.emailVerified &&
-            (SUPER_ADMIN_EMAILS as readonly string[]).includes(normalizedEmail)
+          user.emailVerified && isMasterOperatorEmail(user.email)
         );
-
-        let hasAdminDoc = false;
-        try {
-          const adminDocSnap = await getDoc(doc(db, 'admins', user.uid));
-          hasAdminDoc = adminDocSnap.exists();
-        } catch {
-          hasAdminDoc = false;
-        }
-        setIsAdminDocVerified(hasAdminDoc);
-
-        const isMasterAdmin = isVerifiedMasterEmail || hasAdminDoc;
+        const isMasterAdmin = isVerifiedMasterEmail;
 
         let loadedRole: UserRole = isMasterAdmin ? 'ADMIN' : 'MEMBER';
         let loadedFullName = user.displayName || user.email?.split('@')[0] || 'የኪነጥበብ አባል';
@@ -2110,26 +2177,8 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
         let loadedSundaySchoolId: string | undefined;
         let loadedRequestedPosition: EhudDepartmentPosition | undefined;
         let loadedJoinedDate = '፳፻፲፱ ዓ.ም';
-        let userDocExists = false;
 
-        try {
-          const userDocSnap = await getDoc(doc(db, 'users', user.uid));
-          if (userDocSnap.exists()) {
-            userDocExists = true;
-            const data = userDocSnap.data();
-            if (data.fullName) loadedFullName = data.fullName;
-            if (data.role && !isMasterAdmin) loadedRole = data.role as UserRole;
-            if (data.department) loadedDept = data.department;
-            if (data.departmentId) loadedDeptId = data.departmentId as SundaySchoolDepartment;
-            if (data.sundaySchoolId) loadedSundaySchoolId = String(data.sundaySchoolId);
-            if (data.requestedPosition) loadedRequestedPosition = data.requestedPosition as EhudDepartmentPosition;
-            if (data.joinedDate) loadedJoinedDate = data.joinedDate;
-          }
-        } catch {
-          // Non-blocking read error
-        }
-
-        const updatedProfile: UserProfile = {
+        const initialProfile: UserProfile = {
           id: user.uid,
           fullName: loadedFullName,
           email: user.email || '',
@@ -2143,7 +2192,53 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
           mySubmissionsCount: 0,
           myBookmarksCount: 0,
         };
-        setCurrentUser(updatedProfile);
+        setCurrentUser(initialProfile);
+        setFirebaseUser(user);
+        setIsAuthReady(true);
+
+        let hasAdminDoc = false;
+        if (isVerifiedMasterEmail) {
+          try {
+            const adminDocSnap = await getDoc(doc(db, 'admins', user.uid));
+            hasAdminDoc = adminDocSnap.exists();
+          } catch {
+            hasAdminDoc = false;
+          }
+        }
+        setIsAdminDocVerified(isVerifiedMasterEmail && hasAdminDoc);
+
+        let userDocExists = false;
+        try {
+          const userDocSnap = await getDoc(doc(db, 'users', user.uid));
+          if (userDocSnap.exists()) {
+            userDocExists = true;
+            const data = userDocSnap.data();
+            if (data.fullName) loadedFullName = data.fullName;
+            if (data.role && !isMasterAdmin) loadedRole = data.role as UserRole;
+            if (data.department) loadedDept = data.department;
+            if (data.departmentId) loadedDeptId = data.departmentId as SundaySchoolDepartment;
+            if (data.sundaySchoolId) loadedSundaySchoolId = String(data.sundaySchoolId);
+            if (data.requestedPosition) loadedRequestedPosition = data.requestedPosition as EhudDepartmentPosition;
+            if (data.joinedDate) loadedJoinedDate = data.joinedDate;
+
+            setCurrentUser({
+              id: user.uid,
+              fullName: loadedFullName,
+              email: user.email || '',
+              role: loadedRole,
+              department: loadedDept,
+              departmentId: loadedDeptId,
+              sundaySchoolId: loadedSundaySchoolId,
+              requestedPosition: loadedRequestedPosition,
+              joinedDate: loadedJoinedDate,
+              myWorksCount: 0,
+              mySubmissionsCount: 0,
+              myBookmarksCount: 0,
+            });
+          }
+        } catch {
+          // Non-blocking read error
+        }
 
         // Only create initial user doc if it does not yet exist and registration is not creating it
         try {
@@ -2152,11 +2247,11 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
               doc(db, 'users', user.uid),
               sanitizeFirestorePayload({
                 id: user.uid,
-                fullName: updatedProfile.fullName,
-                email: updatedProfile.email,
+                fullName: loadedFullName,
+                email: user.email || '',
                 role: isMasterAdmin ? 'ADMIN' : 'MEMBER',
-                department: updatedProfile.department,
-                joinedDate: updatedProfile.joinedDate,
+                department: loadedDept,
+                joinedDate: loadedJoinedDate,
                 bookmarks: [],
               })
             );
@@ -2185,9 +2280,6 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
             loadedRequestedPosition
           );
         }
-
-        setFirebaseUser(user);
-        setIsAuthReady(true);
       } else {
         setFirebaseUser(null);
         setIsAdminDocVerified(false);
@@ -2222,15 +2314,7 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return () => unsubscribe();
   }, []);
 
-  // Master Super Admins & Cross-department access (matches firestore.rules isSuperAdmin() 1-to-1)
-  const isSuperAdmin = Boolean(
-    firebaseUser &&
-      ((firebaseUser.emailVerified &&
-        (SUPER_ADMIN_EMAILS as readonly string[]).includes(
-          firebaseUser.email?.toLowerCase() || ''
-        )) ||
-        isAdminDocVerified)
-  );
+  // Sole Master Operator verification is declared above (`isSuperAdmin` / `isMasterOperator`).
 
   // 2. Real-time Firestore synchronization for Works (Public archive vs dept-scoped manager scope)
   useEffect(() => {
@@ -2383,37 +2467,54 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       (!activeMembership || activeMembership.status !== 'APPROVED')
   );
 
-  const isMasterOperator = isSuperAdmin;
+  const firstUserMembershipDept = userMemberships[0]?.departmentId as
+    | SundaySchoolDepartment
+    | undefined;
+
   const assignedDepartmentId: SundaySchoolDepartment | null = isSuperAdmin
     ? null
     : ((approvedMemberships[0]?.departmentId ||
-        currentUser.departmentId ||
-        activeDepartment) as SundaySchoolDepartment) || null;
+        firstUserMembershipDept ||
+        (firebaseUser ? currentUser.departmentId : undefined) ||
+        lockedDepartmentId ||
+        null) as SundaySchoolDepartment | null);
 
   const isDepartmentLocked = (deptId: SundaySchoolDepartment): boolean => {
     if (isSuperAdmin) return false;
-    if (userMemberships.some((m) => m.status === 'APPROVED' && m.departmentId === deptId)) {
-      return false;
+    if (!assignedDepartmentId) return false;
+    return assignedDepartmentId !== deptId;
+  };
+
+  const loginAsMasterOperator = async (): Promise<FirebaseUser | null> => {
+    try {
+      const result = await signInWithPopup(auth, masterOperatorGoogleProvider);
+      return result.user;
+    } catch (error: any) {
+      const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
+      if (
+        !isInIframe &&
+        (error?.code === 'auth/popup-blocked' ||
+          error?.code === 'auth/operation-not-supported-in-this-environment')
+      ) {
+        await signInWithRedirect(auth, masterOperatorGoogleProvider);
+        return null;
+      }
+      console.warn('Master Operator Sign-In notice:', error?.code || error?.message || error);
+      throw error;
     }
-    if (approvedMemberships.length > 0) return true;
-    return activeDepartment !== deptId;
   };
 
-  const loginAsMasterOperator = async (): Promise<void> => {
-    await signInWithGoogle();
-  };
-
-  // Automatically route an approved non-super-admin user into their assigned department
-  // if they currently sit on an unjoined default department (e.g., default 'kinetibeb')
+  // Automatically lock & route non-Master-Operator users into their sole assigned department
   useEffect(() => {
     if (!isAuthReady || !firebaseUser || isSuperAdmin) return;
-    const userApproved = userMemberships.filter((m) => m.status === 'APPROVED');
-    if (userApproved.length === 0) return;
-    const currentMem = userMemberships.find((m) => m.departmentId === activeDepartment);
-    if (!currentMem) {
-      setActiveDepartment(userApproved[0].departmentId);
+    const targetDept = (approvedMemberships[0]?.departmentId ||
+      userMemberships[0]?.departmentId ||
+      currentUser.departmentId) as SundaySchoolDepartment | undefined;
+    if (!targetDept) return;
+    if (lockedDepartmentId !== targetDept || activeDepartment !== targetDept) {
+      persistActiveAndLockedDept(targetDept, true);
     }
-  }, [isAuthReady, firebaseUser, isSuperAdmin, userMemberships, activeDepartment]);
+  }, [isAuthReady, firebaseUser, isSuperAdmin, userMemberships, approvedMemberships, currentUser.departmentId, activeDepartment, lockedDepartmentId]);
 
   // 3. Real-time Firestore synchronization for Members (Department-scoped & authenticated)
   useEffect(() => {
@@ -3071,14 +3172,16 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const result = await signInWithPopup(auth, googleProvider);
       return result.user;
     } catch (error: any) {
+      const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
       if (
-        error?.code === 'auth/popup-closed-by-user' ||
-        error?.code === 'auth/cancelled-popup-request'
+        !isInIframe &&
+        (error?.code === 'auth/popup-blocked' ||
+          error?.code === 'auth/operation-not-supported-in-this-environment')
       ) {
-        // User closed or dismissed the popup window voluntarily
+        await signInWithRedirect(auth, googleProvider);
         return null;
       }
-      console.warn('Google Sign-In notice:', error?.message || error);
+      console.warn('Google Sign-In notice:', error?.code || error?.message || error);
       throw error;
     }
   };
@@ -3107,13 +3210,13 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
       }
       const isMasterAdmin = Boolean(
-        user.emailVerified &&
-          (SUPER_ADMIN_EMAILS as readonly string[]).includes(
-            user.email?.toLowerCase() || ''
-          )
+        user.emailVerified && isMasterOperatorEmail(user.email)
       );
 
-      const targetDeptId = requestedDeptId || activeDepartment || 'kinetibeb';
+      const targetDeptId = (requestedDeptId || lockedDepartmentId || activeDepartment || 'kinetibeb') as SundaySchoolDepartment;
+      if (!isMasterAdmin) {
+        persistActiveAndLockedDept(targetDeptId, true);
+      }
       const deptInfo = departmentsList.find((d) => d.id === targetDeptId);
       const cleanSundaySchoolId = sundaySchoolId?.trim() || undefined;
 
@@ -3226,11 +3329,17 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       throw new Error('Authentication required to submit membership request.');
     }
     const user = auth.currentUser;
+    if (!isSuperAdmin && userMemberships.length > 0 && !userMemberships.some((m) => m.departmentId === deptId)) {
+      throw new Error('በሰንበት ት/ቤት ደንብ መሠረት በአንድ ክፍል ብቻ መመዝገብ ይችላሉ።');
+    }
     const dept = departmentsList.find((d) => d.id === deptId);
     const membershipId = getCanonicalMembershipId(user.uid, deptId);
     const isSuper = isSuperAdmin;
     const nowIso = new Date().toISOString();
     const cleanSundaySchoolId = sundaySchoolId?.trim() || currentUser.sundaySchoolId || undefined;
+    if (!isSuperAdmin) {
+      persistActiveAndLockedDept(deptId as SundaySchoolDepartment, true);
+    }
 
     const newMembership: DepartmentMembership = {
       id: membershipId,
@@ -3993,10 +4102,12 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setRegisteredUsersError(null);
       setScheduleAssignments([]);
       setDepartmentNotifications([]);
+      setLockedDepartmentId(null);
       try {
         localStorage.removeItem('mezgebe_dept_memberships');
         localStorage.removeItem('mezgebe_schedule_assignments');
         localStorage.removeItem('mezgebe_dept_notifications');
+        localStorage.removeItem('mezgebe_locked_dept');
       } catch {}
     } catch (error) {
       console.error('Sign-out failed:', error);
@@ -4488,6 +4599,7 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
         isMasterOperator,
         assignedDepartmentId,
         isDepartmentLocked,
+        lockDepartmentChoice,
         loginAsMasterOperator,
         isDepartmentPortalLocked,
         userMemberships,

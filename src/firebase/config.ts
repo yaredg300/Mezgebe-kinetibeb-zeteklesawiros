@@ -4,24 +4,38 @@ import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
 
+import {
+  PRIMARY_FIREBASE_ADMIN_EMAIL,
+  SUPER_ADMIN_EMAILS,
+  isMasterOperatorEmail,
+  isSingleDepartmentLocked,
+  getAuthErrorMessageAmharic,
+} from './authPolicy';
+
+export {
+  PRIMARY_FIREBASE_ADMIN_EMAIL,
+  SUPER_ADMIN_EMAILS,
+  isMasterOperatorEmail,
+  isSingleDepartmentLocked,
+  getAuthErrorMessageAmharic,
+};
+
 // Initialize Firebase App safely (reuse existing app instance if already initialized to prevent duplicate app errors)
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
 // Initialize Firestore
 export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
 
-export const PRIMARY_FIREBASE_ADMIN_EMAIL = 'goferconstruction@gmail.com';
-export const SUPER_ADMIN_EMAILS = [
-  PRIMARY_FIREBASE_ADMIN_EMAIL,
-  'finalizedyosef@gmail.com',
-  'yaredcotm@gmail.com',
-  'admin@teklesawiros.org',
-] as const;
-
 // Initialize Auth: keep default Google Sign-In free of restricted Drive scopes so all users can sign in
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({
+  prompt: 'select_account',
+});
+
+// Dedicated Google provider for Master Operator login with account hint
+export const masterOperatorGoogleProvider = new GoogleAuthProvider();
+masterOperatorGoogleProvider.setCustomParameters({
   prompt: 'select_account',
   login_hint: PRIMARY_FIREBASE_ADMIN_EMAIL,
 });

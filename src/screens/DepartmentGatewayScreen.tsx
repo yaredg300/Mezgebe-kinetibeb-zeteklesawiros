@@ -10,16 +10,25 @@ import {
   Plus,
   ArrowRight,
   Sparkles,
-  CheckCircle,
-  Clock,
   ShieldCheck,
   Layers,
   ChevronRight,
-  Info,
   X,
+  Lock,
+  Crown,
+  AlertCircle,
+  LogOut,
+  CheckCircle2,
 } from 'lucide-react';
 import { useArchive } from '../context/ArchiveContext';
-import { HaragDivider, ManuscriptBox } from '../components/Ornaments';
+import { HaragDivider } from '../components/Ornaments';
+import { LockedDepartmentModal } from '../components/LockedDepartmentModal';
+import { AuthErrorAlert } from '../components/AuthErrorAlert';
+import {
+  PRIMARY_FIREBASE_ADMIN_EMAIL,
+  getAuthErrorMessageAmharic,
+  isMasterOperatorEmail,
+} from '../firebase/config';
 import { SundaySchoolDepartment, DepartmentInfo } from '../types';
 
 interface DepartmentGatewayScreenProps {
@@ -35,9 +44,23 @@ export const DepartmentGatewayScreen: React.FC<DepartmentGatewayScreenProps> = (
   onExploreDirectly,
   onGoToLogin,
 }) => {
-  const { setActiveDepartment, departmentsList, addDepartment } = useArchive();
+  const {
+    departmentsList,
+    addDepartment,
+    isMasterOperator,
+    assignedDepartmentId,
+    isDepartmentLocked,
+    lockDepartmentChoice,
+    loginAsMasterOperator,
+    firebaseUser,
+    logout,
+  } = useArchive();
+
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
   const [selectedDeptDetail, setSelectedDeptDetail] = useState<DepartmentInfo | null>(null);
+  const [lockedModalDept, setLockedModalDept] = useState<DepartmentInfo | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isLoggingInMaster, setIsLoggingInMaster] = useState<boolean>(false);
 
   // New Department Form State
   const [newTitle, setNewTitle] = useState('');
@@ -45,11 +68,17 @@ export const DepartmentGatewayScreen: React.FC<DepartmentGatewayScreenProps> = (
   const [newDescription, setNewDescription] = useState('');
   const [newCoordinator, setNewCoordinator] = useState('');
   const [newIcon, setNewIcon] = useState('BookOpen');
-  const [newColor, setNewColor] = useState('#0C4A9E');
+  const [newColor] = useState('#0C4A9E');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSelectDepartment = (deptId: SundaySchoolDepartment, viewIntro: boolean = false) => {
-    setActiveDepartment(deptId);
+  const kinetibebDept = departmentsList.find((d) => d.id === 'kinetibeb');
+  const ehudDept = departmentsList.find((d) => d.id === 'ehud_merha_gibir');
+  const assignedDeptInfo = departmentsList.find((d) => d.id === assignedDepartmentId) || null;
+
+  const isKinetibebLocked = isDepartmentLocked('kinetibeb');
+  const isEhudLocked = isDepartmentLocked('ehud_merha_gibir');
+
+  const navigateToDepartment = (deptId: SundaySchoolDepartment, viewIntro: boolean = false) => {
     if (deptId === 'kinetibeb') {
       if (viewIntro) {
         onSelectKinetibeb(true);
@@ -63,9 +92,42 @@ export const DepartmentGatewayScreen: React.FC<DepartmentGatewayScreenProps> = (
     }
   };
 
+  const handleSelectDepartment = (deptId: SundaySchoolDepartment, viewIntro: boolean = false) => {
+    if (isDepartmentLocked(deptId)) {
+      const target = departmentsList.find((d) => d.id === deptId) || null;
+      setLockedModalDept(target);
+      return;
+    }
+    const allowed = lockDepartmentChoice(deptId);
+    if (!allowed) {
+      const target = departmentsList.find((d) => d.id === deptId) || null;
+      setLockedModalDept(target);
+      return;
+    }
+    navigateToDepartment(deptId, viewIntro);
+  };
+
+  const handleMasterLogin = async () => {
+    setAuthError(null);
+    setIsLoggingInMaster(true);
+    try {
+      const signedInUser = await loginAsMasterOperator();
+      if (signedInUser && !isMasterOperatorEmail(signedInUser.email)) {
+        setAuthError(
+          `የገቡት በ«${signedInUser.email}» ነው። ሁሉንም ክፍሎች የመክፈት ፈቃድ ያለው ዋና አስተባባሪ (${PRIMARY_FIREBASE_ADMIN_EMAIL}) ብቻ ነው።`
+        );
+      }
+    } catch (err: any) {
+      const msg = getAuthErrorMessageAmharic(err);
+      if (msg) setAuthError(msg);
+    } finally {
+      setIsLoggingInMaster(false);
+    }
+  };
+
   const handleCreateDepartment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTitle.trim()) return;
+    if (!isMasterOperator || !newTitle.trim()) return;
 
     setIsSubmitting(true);
     try {
@@ -75,7 +137,8 @@ export const DepartmentGatewayScreen: React.FC<DepartmentGatewayScreenProps> = (
         shortTitleAmharic: newTitle.trim().slice(0, 14),
         iconName: newIcon,
         badgeLabel: newTitle.trim().slice(0, 10),
-        descriptionAmharic: newDescription.trim() || 'በደብረ መድኃኒት ተክለ ሣዊሮስ ሰንበት ትምህርት ቤት አዲስ የተደራጀ ክፍል',
+        descriptionAmharic:
+          newDescription.trim() || 'በደብረ መድኃኒት ተክለ ሣዊሮስ ሰንበት ትምህርት ቤት አዲስ የተደራጀ ክፍል',
         accentColor: newColor,
         status: 'ACTIVE',
         coordinatorName: newCoordinator.trim() || 'የክፍሉ አስተባባሪ',
@@ -118,7 +181,7 @@ export const DepartmentGatewayScreen: React.FC<DepartmentGatewayScreenProps> = (
     <div className="min-h-screen bg-[#FBF9F5] text-slate-800 flex flex-col justify-between py-6 px-4 sm:px-6">
       <div className="max-w-4xl mx-auto w-full">
         {/* Top Header */}
-        <div className="flex flex-col items-center text-center pt-2 pb-6">
+        <div className="flex flex-col items-center text-center pt-2 pb-5">
           <div className="p-1 rounded-full bg-white border-2 border-[#B88500] shadow-md mb-3 flex items-center justify-center">
             <img
               src="/assets/ic_church_logo.jpg"
@@ -139,29 +202,144 @@ export const DepartmentGatewayScreen: React.FC<DepartmentGatewayScreenProps> = (
           </h1>
 
           <p className="text-xs sm:text-sm text-slate-600 max-w-xl mt-1.5 font-serif-ethiopic">
-            ለመግባት የሚፈልጉትን ክፍል ይምረጡ፤ የፈጠራ ስራዎችን ያንብቡ ወይም የእሁድ መርሐ ግብራትንና የዕለት ዕቅዶችን ያደራጁ
+            {isMasterOperator
+              ? 'ዋና አስተባባሪ በመሆንዎ ሁሉም የሰንበት ትምህርት ቤቱ ክፍሎች ለእርስዎ ክፍት ናቸው።'
+              : assignedDeptInfo
+              ? `እርስዎ በ«${assignedDeptInfo.titleAmharic}» ክፍል ብቻ እንዲያገለግሉ ስለተመደቡ ሌሎች ክፍሎች ተቆልፈዋል።`
+              : 'በደንቡ መሠረት ለመመዝገብና ለማገልገል አንድ ክፍል ብቻ ይምረጡ፤ አንድ ክፍል ሲከፍቱ ሌሎች ክፍሎች በሙሉ ይቆለፋሉ።'}
           </p>
 
           <HaragDivider className="my-4" height={16} goldColor="#B88500" burgundyColor="#8B0000" />
+
+          {/* Master Operator / Single-Department Lock Status Banner */}
+          <div className="w-full">
+            {isMasterOperator ? (
+              <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-[#B88500]/20 to-amber-500/15 border-2 border-[#B88500] flex flex-col sm:flex-row items-center justify-between gap-3 text-left">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-[#B88500] text-white flex items-center justify-center shrink-0 shadow-xs">
+                    <Crown className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-[#8B0000] uppercase tracking-wider block">
+                      ዋና አስተባባሪ (Master Operator: {PRIMARY_FIREBASE_ADMIN_EMAIL})
+                    </span>
+                    <span className="text-xs sm:text-sm font-bold text-slate-900 font-serif-ethiopic">
+                      ሁሉም ክፍሎች ክፍት ናቸው — ማናቸውንም ክፍል መክፈትና ማስተዳደር ይችላሉ።
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => logout()}
+                  className="px-3 py-1.5 rounded-xl bg-white/90 hover:bg-white border border-slate-300 text-slate-700 text-xs font-bold flex items-center gap-1.5 shrink-0 cursor-pointer"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>ውጣ (Sign Out)</span>
+                </button>
+              </div>
+            ) : (
+              <div className="p-3.5 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3 text-left">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                      assignedDeptInfo
+                        ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
+                        : 'bg-amber-100 text-[#B88500] border border-amber-300'
+                    }`}
+                  >
+                    {assignedDeptInfo ? <CheckCircle2 className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-[#0C4A9E] uppercase tracking-wider block">
+                      {assignedDeptInfo
+                        ? 'የአንድ ክፍል ቁልፍ ገቢር ነው (Single-Department Lock)'
+                        : 'የአገልግሎት ክፍል ምርጫ (1 Department Only)'}
+                    </span>
+                    <p className="text-xs text-slate-700 font-serif-ethiopic leading-snug">
+                      {assignedDeptInfo ? (
+                        <>
+                          የተፈቀደልዎ በር፦ <strong>{assignedDeptInfo.titleAmharic}</strong> — ሌሎች ክፍሎች ተቆልፈዋል።
+                        </>
+                      ) : (
+                        'አንድ የአገልግሎት ክፍል ሲመርጡ ወይም ሲመዘገቡ ሌሎች ክፍሎች በሙሉ ይቆለፋሉ።'
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  {firebaseUser && (
+                    <button
+                      type="button"
+                      onClick={() => logout()}
+                      className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>ውጣ</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={isLoggingInMaster}
+                    onClick={handleMasterLogin}
+                    className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#B88500] to-[#8B0000] hover:brightness-105 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-60"
+                    title={`Master Operator Only (${PRIMARY_FIREBASE_ADMIN_EMAIL})`}
+                  >
+                    <Crown className="w-3.5 h-3.5" />
+                    <span>{isLoggingInMaster ? 'በመገናኘት ላይ...' : 'ዋና አስተባባሪ (Master Operator)'}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <AuthErrorAlert
+              message={authError}
+              onDismiss={() => setAuthError(null)}
+              className="mt-3"
+            />
+          </div>
         </div>
 
         {/* Two Flagship Department Cards (Kinetibeb vs Ehud Merha Gibir) */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-8">
           {/* 1. Kinetibeb Card */}
-          <div className="relative rounded-2xl bg-white border-2 border-[#B88500]/40 shadow-md hover:shadow-lg transition-all duration-300 p-5 sm:p-6 flex flex-col justify-between overflow-hidden group">
+          <div
+            className={`relative rounded-2xl border-2 shadow-md transition-all duration-300 p-5 sm:p-6 flex flex-col justify-between overflow-hidden group ${
+              isKinetibebLocked
+                ? 'bg-slate-100/90 border-slate-300 opacity-80'
+                : 'bg-white border-[#B88500]/40 hover:shadow-lg'
+            }`}
+          >
             <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-[#F5B800]/20 to-transparent rounded-bl-full pointer-events-none" />
 
             <div>
               <div className="flex items-center justify-between gap-2 mb-3">
-                <div className="w-12 h-12 rounded-xl bg-[#B88500]/15 border border-[#B88500]/40 flex items-center justify-center text-[#8B0000]">
-                  <Palette className="w-6 h-6" />
+                <div
+                  className={`w-12 h-12 rounded-xl border flex items-center justify-center ${
+                    isKinetibebLocked
+                      ? 'bg-slate-200 border-slate-300 text-slate-500'
+                      : 'bg-[#B88500]/15 border-[#B88500]/40 text-[#8B0000]'
+                  }`}
+                >
+                  {isKinetibebLocked ? <Lock className="w-6 h-6" /> : <Palette className="w-6 h-6" />}
                 </div>
-                <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-[#8B0000]/10 text-[#8B0000] border border-[#8B0000]/25">
-                  የፈጠራና የቅርስ ማህደር
-                </span>
+                {isKinetibebLocked ? (
+                  <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1">
+                    <Lock className="w-3 h-3" />
+                    <span>የተቆለፈ</span>
+                  </span>
+                ) : (
+                  <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-[#8B0000]/10 text-[#8B0000] border border-[#8B0000]/25">
+                    {assignedDepartmentId === 'kinetibeb' ? 'የእርስዎ ክፍል ✓' : 'የፈጠራና የቅርስ ማህደር'}
+                  </span>
+                )}
               </div>
 
-              <h2 className="text-xl sm:text-2xl font-bold font-serif-ethiopic text-[#8B0000]">
+              <h2
+                className={`text-xl sm:text-2xl font-bold font-serif-ethiopic ${
+                  isKinetibebLocked ? 'text-slate-600' : 'text-[#8B0000]'
+                }`}
+              >
                 የኪነጥበብ ክፍል
               </h2>
 
@@ -192,42 +370,80 @@ export const DepartmentGatewayScreen: React.FC<DepartmentGatewayScreenProps> = (
 
             {/* Actions */}
             <div className="mt-6 flex flex-col sm:flex-row gap-2">
-              <button
-                type="button"
-                onClick={() => handleSelectDepartment('kinetibeb', false)}
-                className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-[#B88500] to-[#8B0000] hover:brightness-105 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md active:scale-98 transition-all"
-              >
-                <span>ወደ ኪነጥበብ ክፍል ግባ</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
+              {isKinetibebLocked ? (
+                <button
+                  type="button"
+                  onClick={() => setLockedModalDept(kinetibebDept || null)}
+                  className="flex-1 py-3 px-4 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer"
+                >
+                  <Lock className="w-4 h-4 text-rose-700" />
+                  <span>ተቆልፏል (በሌላ ክፍል ተመድበዋል)</span>
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectDepartment('kinetibeb', false)}
+                    className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-[#B88500] to-[#8B0000] hover:brightness-105 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md active:scale-98 transition-all cursor-pointer"
+                  >
+                    <span>ወደ ኪነጥበብ ክፍል ግባ</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
 
-              <button
-                type="button"
-                onClick={() => handleSelectDepartment('kinetibeb', true)}
-                className="py-3 px-3 rounded-xl bg-amber-50 hover:bg-amber-100 text-[#8B0000] font-bold text-xs flex items-center justify-center gap-1 border border-amber-300 transition-all"
-                title="የኪነጥበብ ክፍሉን መግቢያ እና የስራ ፍሰት እይ"
-              >
-                <span>መግቢያ (Intro)</span>
-              </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectDepartment('kinetibeb', true)}
+                    className="py-3 px-3 rounded-xl bg-amber-50 hover:bg-amber-100 text-[#8B0000] font-bold text-xs flex items-center justify-center gap-1 border border-amber-300 transition-all cursor-pointer"
+                    title="የኪነጥበብ ክፍሉን መግቢያ እና የስራ ፍሰት እይ"
+                  >
+                    <span>መግቢያ (Intro)</span>
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
           {/* 2. Ehud Merha Gibir Card */}
-          <div className="relative rounded-2xl bg-white border-2 border-[#0C4A9E]/40 shadow-md hover:shadow-lg transition-all duration-300 p-5 sm:p-6 flex flex-col justify-between overflow-hidden group">
+          <div
+            className={`relative rounded-2xl border-2 shadow-md transition-all duration-300 p-5 sm:p-6 flex flex-col justify-between overflow-hidden group ${
+              isEhudLocked
+                ? 'bg-slate-100/90 border-slate-300 opacity-80'
+                : 'bg-white border-[#0C4A9E]/40 hover:shadow-lg'
+            }`}
+          >
             <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-[#0C4A9E]/15 to-transparent rounded-bl-full pointer-events-none" />
 
             <div>
               <div className="flex items-center justify-between gap-2 mb-3">
-                <div className="w-12 h-12 rounded-xl bg-[#0C4A9E]/15 border border-[#0C4A9E]/40 flex items-center justify-center text-[#0C4A9E]">
-                  <CalendarDays className="w-6 h-6" />
+                <div
+                  className={`w-12 h-12 rounded-xl border flex items-center justify-center ${
+                    isEhudLocked
+                      ? 'bg-slate-200 border-slate-300 text-slate-500'
+                      : 'bg-[#0C4A9E]/15 border-[#0C4A9E]/40 text-[#0C4A9E]'
+                  }`}
+                >
+                  {isEhudLocked ? <Lock className="w-6 h-6" /> : <CalendarDays className="w-6 h-6" />}
                 </div>
-                <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-[#0C4A9E]/10 text-[#0C4A9E] border border-[#0C4A9E]/25 flex items-center gap-1">
-                  <Sparkles className="w-3 h-3 text-[#B88500]" />
-                  <span>2019 ዓ.ም ዕቅዶች ገቢር</span>
-                </span>
+                {isEhudLocked ? (
+                  <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1">
+                    <Lock className="w-3 h-3" />
+                    <span>የተቆለፈ</span>
+                  </span>
+                ) : (
+                  <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-[#0C4A9E]/10 text-[#0C4A9E] border border-[#0C4A9E]/25 flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-[#B88500]" />
+                    <span>
+                      {assignedDepartmentId === 'ehud_merha_gibir' ? 'የእርስዎ ክፍል ✓' : '2019 ዓ.ም ዕቅዶች ገቢር'}
+                    </span>
+                  </span>
+                )}
               </div>
 
-              <h2 className="text-xl sm:text-2xl font-bold font-serif-ethiopic text-[#0C4A9E]">
+              <h2
+                className={`text-xl sm:text-2xl font-bold font-serif-ethiopic ${
+                  isEhudLocked ? 'text-slate-600' : 'text-[#0C4A9E]'
+                }`}
+              >
                 የእሁድ መርሃ ግብር ክፍል
               </h2>
 
@@ -258,40 +474,51 @@ export const DepartmentGatewayScreen: React.FC<DepartmentGatewayScreenProps> = (
 
             {/* Actions */}
             <div className="mt-6 flex flex-col sm:flex-row gap-2">
-              <button
-                type="button"
-                onClick={() => handleSelectDepartment('ehud_merha_gibir', false)}
-                className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-[#0C4A9E] to-[#072958] hover:brightness-105 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md active:scale-98 transition-all"
-              >
-                <span>ወደ እሁድ መርሃ ግብር ግባ</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-
-              {onGoToLogin ? (
+              {isEhudLocked ? (
                 <button
                   type="button"
-                  onClick={() => {
-                    setActiveDepartment('ehud_merha_gibir');
-                    onGoToLogin('ehud_merha_gibir');
-                  }}
-                  className="py-3 px-3 rounded-xl bg-blue-50 hover:bg-blue-100 text-[#0C4A9E] font-bold text-xs flex items-center justify-center gap-1 border border-blue-300 transition-all"
-                  title="በአባልነት ወይም በአስተዳዳሪ መለያ ይግቡ"
+                  onClick={() => setLockedModalDept(ehudDept || null)}
+                  className="flex-1 py-3 px-4 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer"
                 >
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>በመለያ ግባ</span>
+                  <Lock className="w-4 h-4 text-rose-700" />
+                  <span>ተቆልፏል (በሌላ ክፍል ተመድበዋል)</span>
                 </button>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveDepartment('ehud_merha_gibir');
-                    onSelectEhudMerhaGibir();
-                  }}
-                  className="py-3 px-3 rounded-xl bg-blue-50 hover:bg-blue-100 text-[#0C4A9E] font-bold text-xs flex items-center justify-center gap-1 border border-blue-300 transition-all"
-                  title="የ2019 ዓመታዊና የዕለት ዕቅዶችን ሰሌዳ ይመልከቱ"
-                >
-                  <span>የዕቅድ ሰሌዳ</span>
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectDepartment('ehud_merha_gibir', false)}
+                    className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-[#0C4A9E] to-[#072958] hover:brightness-105 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md active:scale-98 transition-all cursor-pointer"
+                  >
+                    <span>ወደ እሁድ መርሃ ግብር ግባ</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+
+                  {onGoToLogin ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (lockDepartmentChoice('ehud_merha_gibir')) {
+                          onGoToLogin('ehud_merha_gibir');
+                        }
+                      }}
+                      className="py-3 px-3 rounded-xl bg-blue-50 hover:bg-blue-100 text-[#0C4A9E] font-bold text-xs flex items-center justify-center gap-1 border border-blue-300 transition-all cursor-pointer"
+                      title="በአባልነት ወይም በአስተዳዳሪ መለያ ይግቡ"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      <span>በመለያ ግባ</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleSelectDepartment('ehud_merha_gibir', false)}
+                      className="py-3 px-3 rounded-xl bg-blue-50 hover:bg-blue-100 text-[#0C4A9E] font-bold text-xs flex items-center justify-center gap-1 border border-blue-300 transition-all cursor-pointer"
+                      title="የ2019 ዓመታዊና የዕለት ዕቅዶችን ሰሌዳ ይመልከቱ"
+                    >
+                      <span>የዕቅድ ሰሌዳ</span>
+                    </button>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -310,30 +537,47 @@ export const DepartmentGatewayScreen: React.FC<DepartmentGatewayScreenProps> = (
                 </span>
               </div>
               <h3 className="text-base sm:text-lg font-bold font-serif-ethiopic text-slate-800 mt-0.5">
-                ሁሉንም ክፍሎች ደረጃ በደረጃ እናደራጃለን
+                {isMasterOperator
+                  ? 'ሁሉም የሰንበት ት/ቤት ክፍሎች (ዋና አስተባባሪ መዳረሻ)'
+                  : 'የአገልግሎት ክፍሎች (በአንድ ክፍል ብቻ መግባት ይቻላል)'}
               </h3>
             </div>
 
-            <button
-              type="button"
-              onClick={() => setShowAddModal(true)}
-              className="inline-flex items-center gap-1.5 py-2 px-3.5 rounded-xl bg-gradient-to-r from-[#F5B800] to-[#B88500] hover:brightness-105 text-slate-900 font-bold text-xs shadow-xs transition-all shrink-0 self-start sm:self-auto"
-            >
-              <Plus className="w-4 h-4" />
-              <span>አዲስ ክፍል አክል / ጠቁም</span>
-            </button>
+            {isMasterOperator && (
+              <button
+                type="button"
+                onClick={() => setShowAddModal(true)}
+                className="inline-flex items-center gap-1.5 py-2 px-3.5 rounded-xl bg-gradient-to-r from-[#F5B800] to-[#B88500] hover:brightness-105 text-slate-900 font-bold text-xs shadow-xs transition-all shrink-0 self-start sm:self-auto cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>አዲስ ክፍል አክል</span>
+              </button>
+            )}
           </div>
 
           {/* Department Cards Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-4">
             {departmentsList.map((dept) => {
               const isFlagship = dept.id === 'kinetibeb' || dept.id === 'ehud_merha_gibir';
+              const locked = isDepartmentLocked(dept.id);
+              const isAssigned = assignedDepartmentId === dept.id;
+
               return (
                 <div
                   key={dept.id}
-                  onClick={() => setSelectedDeptDetail(dept)}
+                  onClick={() => {
+                    if (locked) {
+                      setLockedModalDept(dept);
+                    } else {
+                      setSelectedDeptDetail(dept);
+                    }
+                  }}
                   className={`p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
-                    isFlagship
+                    locked
+                      ? 'bg-slate-100/80 border-slate-200 opacity-70 hover:opacity-90'
+                      : isAssigned
+                      ? 'bg-emerald-50/50 border-emerald-400 ring-1 ring-emerald-300'
+                      : isFlagship
                       ? 'bg-amber-50/40 border-[#B88500]/30 hover:border-[#B88500]'
                       : 'bg-slate-50/70 border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                   }`}
@@ -341,10 +585,12 @@ export const DepartmentGatewayScreen: React.FC<DepartmentGatewayScreenProps> = (
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2.5">
                       <div
-                        className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-white"
-                        style={{ backgroundColor: dept.accentColor || '#0C4A9E' }}
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-white ${
+                          locked ? 'bg-slate-400' : ''
+                        }`}
+                        style={locked ? {} : { backgroundColor: dept.accentColor || '#0C4A9E' }}
                       >
-                        {renderIcon(dept.iconName, 'w-4 h-4')}
+                        {locked ? <Lock className="w-4 h-4" /> : renderIcon(dept.iconName, 'w-4 h-4')}
                       </div>
                       <div>
                         <h4 className="text-xs sm:text-sm font-bold text-slate-800 font-serif-ethiopic leading-tight">
@@ -356,21 +602,32 @@ export const DepartmentGatewayScreen: React.FC<DepartmentGatewayScreenProps> = (
                       </div>
                     </div>
 
-                    <span
-                      className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${
-                        dept.status === 'ACTIVE'
-                          ? 'bg-emerald-100 text-emerald-800'
+                    {locked ? (
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-0.5 shrink-0">
+                        <Lock className="w-2.5 h-2.5" />
+                        <span>የተቆለፈ</span>
+                      </span>
+                    ) : isAssigned ? (
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 shrink-0">
+                        የእርስዎ ክፍል ✓
+                      </span>
+                    ) : (
+                      <span
+                        className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${
+                          dept.status === 'ACTIVE'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : dept.status === 'PREPARATION'
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'bg-amber-100 text-amber-800'
+                        }`}
+                      >
+                        {dept.status === 'ACTIVE'
+                          ? 'ክፍት'
                           : dept.status === 'PREPARATION'
-                          ? 'bg-blue-100 text-blue-800'
-                          : 'bg-amber-100 text-amber-800'
-                      }`}
-                    >
-                      {dept.status === 'ACTIVE'
-                        ? 'ገቢር'
-                        : dept.status === 'PREPARATION'
-                        ? 'በዝግጅት ላይ'
-                        : 'የታቀደ'}
-                    </span>
+                          ? 'በዝግጅት ላይ'
+                          : 'የታቀደ'}
+                      </span>
+                    )}
                   </div>
 
                   <p className="text-[11px] text-slate-600 font-serif-ethiopic line-clamp-2 mt-2 leading-relaxed">
@@ -381,9 +638,15 @@ export const DepartmentGatewayScreen: React.FC<DepartmentGatewayScreenProps> = (
                     <span className="truncate max-w-[130px]">
                       {dept.coordinatorName || 'አስተባባሪ'}
                     </span>
-                    <span className="font-bold text-[#0C4A9E] flex items-center gap-0.5">
-                      ዝርዝር <ChevronRight className="w-3 h-3" />
-                    </span>
+                    {locked ? (
+                      <span className="font-bold text-rose-700 flex items-center gap-0.5">
+                        <Lock className="w-3 h-3" /> ተቆልፏል
+                      </span>
+                    ) : (
+                      <span className="font-bold text-[#0C4A9E] flex items-center gap-0.5">
+                        በር ግባ <ChevronRight className="w-3 h-3" />
+                      </span>
+                    )}
                   </div>
                 </div>
               );
@@ -397,8 +660,8 @@ export const DepartmentGatewayScreen: React.FC<DepartmentGatewayScreenProps> = (
         </div>
       </div>
 
-      {/* Add Department Modal */}
-      {showAddModal && (
+      {/* Add Department Modal (Master Operator Only) */}
+      {showAddModal && isMasterOperator && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
@@ -519,8 +782,8 @@ export const DepartmentGatewayScreen: React.FC<DepartmentGatewayScreenProps> = (
         </div>
       )}
 
-      {/* Department Detail Modal */}
-      {selectedDeptDetail && (
+      {/* Department Detail Modal (only opens for unlocked departments) */}
+      {selectedDeptDetail && !isDepartmentLocked(selectedDeptDetail.id) && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-200">
             <div className="flex items-start justify-between pb-3 border-b border-slate-100">
@@ -577,6 +840,12 @@ export const DepartmentGatewayScreen: React.FC<DepartmentGatewayScreenProps> = (
                   </span>
                 </div>
               </div>
+
+              {!isMasterOperator && !assignedDepartmentId && (
+                <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900 font-medium">
+                  ማሳሰቢያ፦ ወደዚህ ክፍል ሲገቡ ሌሎች ክፍሎች በሙሉ በደንቡ መሠረት ይቆለፋሉ።
+                </div>
+              )}
             </div>
 
             <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
@@ -587,11 +856,28 @@ export const DepartmentGatewayScreen: React.FC<DepartmentGatewayScreenProps> = (
               >
                 ዝጋ
               </button>
+              {onGoToLogin && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const targetId = selectedDeptDetail.id as SundaySchoolDepartment;
+                    if (lockDepartmentChoice(targetId)) {
+                      setSelectedDeptDetail(null);
+                      onGoToLogin(targetId);
+                    }
+                  }}
+                  className="px-3.5 py-2 text-xs font-bold rounded-xl bg-blue-50 hover:bg-blue-100 text-[#0C4A9E] border border-blue-200 flex items-center gap-1"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>በመለያ ግባ / ተመዝገብ</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {
-                  handleSelectDepartment(selectedDeptDetail.id as SundaySchoolDepartment, false);
+                  const targetId = selectedDeptDetail.id as SundaySchoolDepartment;
                   setSelectedDeptDetail(null);
+                  handleSelectDepartment(targetId, false);
                 }}
                 className="px-5 py-2 text-xs font-bold rounded-xl bg-[#0C4A9E] hover:bg-[#072958] text-white shadow-xs flex items-center gap-1.5"
               >
@@ -602,6 +888,15 @@ export const DepartmentGatewayScreen: React.FC<DepartmentGatewayScreenProps> = (
           </div>
         </div>
       )}
+
+      {/* Locked Department Modal */}
+      <LockedDepartmentModal
+        department={lockedModalDept}
+        onClose={() => setLockedModalDept(null)}
+        onRedirectToMyDepartment={(myDeptId) => {
+          navigateToDepartment(myDeptId, false);
+        }}
+      />
     </div>
   );
 };

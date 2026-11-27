@@ -20,9 +20,17 @@ import {
   MessageSquare,
   Save,
   AlertTriangle,
+  Star,
+  ChevronRight,
+  Minus,
+  Plus,
+  Timer,
+  RotateCcw,
+  Phone,
 } from 'lucide-react';
 import { useArchive } from '../context/ArchiveContext';
 import {
+  BottomNavTab,
   EhudFollowUpStatus,
   EhudPlanScope,
   EhudPunctualityStatus,
@@ -43,7 +51,17 @@ import {
 } from '../utils/ehudPlanSync';
 import { SlotOverlapShower } from '../components/SlotOverlapShower';
 import { ClockPopoverDialog } from '../components/ClockTimePicker';
-import { analyzeDailySlotTimes } from '../utils/timeOverlap';
+import {
+  analyzeDailySlotTimes,
+  formatMinutesToClock,
+  parseTimeRangeValue,
+} from '../utils/timeOverlap';
+
+const formatTelHref = (contact?: string): string | null => {
+  if (!contact) return null;
+  const cleaned = contact.replace(/[^\d+]/g, '');
+  return cleaned.length >= 7 ? `tel:${cleaned}` : null;
+};
 
 const PUNCTUALITY_META: Record<
   EhudPunctualityStatus,
@@ -120,8 +138,39 @@ interface LocalSlotTrackingOverride {
 }
 
 const LOCAL_TRACKING_STORAGE_KEY = 'mezgebe_day_slot_tracking_v1';
+const LOCAL_LIVE_TIMERS_STORAGE_KEY = 'mezgebe_live_slot_timers_v1';
 
-export const EhudFollowingScreen: React.FC = () => {
+const DELAY_REASON_PRESETS = [
+  'መምህር/አቅራቢ ዘግይተዋል',
+  'የድምፅ ማስተካከያ',
+  'መዝሙር ረዝሟል',
+  'ውይይት ተራዝሟል',
+];
+
+const QUICK_OBSERVATION_PRESETS = [
+  'ሁሉም ክፍለ-ጊዜዎች በሰዓቱና በስርዓት ተከናውነዋል።',
+  'የጉባኤው ተሳትፎ እና መንፈሳዊ ትኩረት ከፍተኛ ነበር።',
+  'በድምፅ መሳሪያ ማስተካከያ ምክንያት ትንሽ መዘግየት ታይቷል።',
+];
+
+function formatElapsedMmSs(elapsedSec: number): string {
+  const safe = Math.max(0, Math.floor(elapsedSec));
+  const mins = Math.floor(safe / 60);
+  const secs = safe % 60;
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+export interface EhudFollowingScreenProps {
+  focusedSheetId?: string | null;
+  onFocusSheetChange?: (sheetId: string | null) => void;
+  onNavigateToTab?: (tab: BottomNavTab) => void;
+}
+
+export const EhudFollowingScreen: React.FC<EhudFollowingScreenProps> = ({
+  focusedSheetId,
+  onFocusSheetChange,
+  onNavigateToTab,
+}) => {
   const {
     selectedDivision,
     selectDivision,
@@ -146,10 +195,26 @@ export const EhudFollowingScreen: React.FC = () => {
   } = useArchive();
 
   const [viewMode, setViewMode] = useState<FollowingViewMode>('PROGRAM_DAY');
-  const [selectedSheetId, setSelectedSheetId] = useState<string>('');
+  const [localSelectedSheetId, setLocalSelectedSheetId] = useState<string>(focusedSheetId || '');
+  const selectedSheetId =
+    focusedSheetId !== undefined ? focusedSheetId || '' : localSelectedSheetId;
+  const setSelectedSheetId = (id: string) => {
+    setLocalSelectedSheetId(id);
+    onFocusSheetChange?.(id || null);
+  };
+
   const [showDaySummaryForm, setShowDaySummaryForm] = useState<boolean>(false);
   const [openNoteSlotId, setOpenNoteSlotId] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState<string>('');
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+  const [liveSlotTimers, setLiveSlotTimers] = useState<Record<string, number>>(() => {
+    try {
+      const raw = localStorage.getItem(LOCAL_LIVE_TIMERS_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
 
   // Local mirror for slot execution when non-admin approved member follows live on the day
   const [localSlotTracking, setLocalSlotTracking] = useState<
@@ -404,6 +469,50 @@ export const EhudFollowingScreen: React.FC = () => {
     });
   };
 
+  // Tick live stopwatch only while a slot is currently IN_PROGRESS
+  useEffect(() => {
+    if (!slotStats.liveSlot || !activeSheet) return;
+    const key = `${activeSheet.id}_${slotStats.liveSlot.id}`;
+    if (!liveSlotTimers[key]) {
+      const startedAt = Date.now();
+      setLiveSlotTimers((prev) => {
+        const next = { ...prev, [key]: startedAt };
+        try {
+          localStorage.setItem(LOCAL_LIVE_TIMERS_STORAGE_KEY, JSON.stringify(next));
+        } catch {
+          // ignore
+        }
+        return next;
+      });
+    }
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [slotStats.liveSlot?.id, activeSheet?.id]);
+
+  const setSlotLiveStarted = (sheetId: string, slotId: string) => {
+    const key = `${sheetId}_${slotId}`;
+    const startedAt = Date.now();
+    setNowMs(startedAt);
+    setLiveSlotTimers((prev) => {
+      const next = { ...prev, [key]: startedAt };
+      try {
+        localStorage.setItem(LOCAL_LIVE_TIMERS_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
+
+  const formatCurrentClockNow = (): string => {
+    const d = new Date();
+    const h24 = d.getHours();
+    const m = d.getMinutes();
+    // Convert to Ethiopian daytime 12-hour clock heuristic if standard hours, or clean 12h clock
+    const h12 = h24 % 12 || 12;
+    return `${h12}:${String(m).padStart(2, '0')}`;
+  };
+
   const handleUpdateSlotTracking = async (
     sheet: SundayDailyPlanSheet,
     slotId: string,
@@ -412,6 +521,10 @@ export const EhudFollowingScreen: React.FC = () => {
     if (!canFollowUp) {
       showToast('ክትትል ለመመዝገብ እባክዎ የክፍሉ የጸደቁ አባል ይሁኑ።');
       return;
+    }
+
+    if (patch.executionStatus === 'IN_PROGRESS') {
+      setSlotLiveStarted(sheet.id, slotId);
     }
 
     persistLocalSlotOverride(sheet.id, slotId, patch);
@@ -426,6 +539,34 @@ export const EhudFollowingScreen: React.FC = () => {
         // already preserved locally
       }
     }
+  };
+
+  const handleCompleteLiveSlotWithNow = async (
+    sheet: SundayDailyPlanSheet,
+    slot: SundayTimetableSlot
+  ) => {
+    const key = `${sheet.id}_${slot.id}`;
+    const startedAtMs = liveSlotTimers[key];
+    const nowClock = formatCurrentClockNow();
+    let actualStr = slot.actualTimeRange;
+    if (startedAtMs) {
+      const startD = new Date(startedAtMs);
+      const sh = startD.getHours() % 12 || 12;
+      const sm = String(startD.getMinutes()).padStart(2, '0');
+      actualStr = `${sh}:${sm}–${nowClock}`;
+    } else {
+      const parsed = parseTimeRangeValue(slot.timeRange);
+      if (parsed?.startMin !== undefined) {
+        actualStr = `${formatMinutesToClock(parsed.startMin)}–${nowClock}`;
+      } else {
+        actualStr = nowClock;
+      }
+    }
+    await handleUpdateSlotTracking(sheet, slot.id, {
+      executionStatus: 'COMPLETED',
+      actualTimeRange: actualStr,
+    });
+    showToast(`«${slot.slotTitle}» በ${actualStr} ተመዝግቦ ተጠናቋል።`);
   };
 
   const handleStartOrAdvanceProgram = async () => {
@@ -454,6 +595,7 @@ export const EhudFollowingScreen: React.FC = () => {
           ...nextSlots[nextPendingIdx],
           executionStatus: 'IN_PROGRESS',
         };
+        setSlotLiveStarted(activeSheet.id, nextSlots[nextPendingIdx].id);
         message = `«${current.slotTitle}» ተጠናቋል · አሁን «${nextSlots[nextPendingIdx].slotTitle}» ተጀምሯል።`;
       } else {
         message = `«${current.slotTitle}» ተጠናቋል!`;
@@ -467,6 +609,7 @@ export const EhudFollowingScreen: React.FC = () => {
           ...nextSlots[firstPendingIdx],
           executionStatus: 'IN_PROGRESS',
         };
+        setSlotLiveStarted(activeSheet.id, nextSlots[firstPendingIdx].id);
         message = `«${nextSlots[firstPendingIdx].slotTitle}» አሁን በቀጥታ ተጀምሯል።`;
       } else {
         return;
@@ -488,6 +631,25 @@ export const EhudFollowingScreen: React.FC = () => {
       }
     }
     showToast(message);
+  };
+
+  const handleResetAllSlotsForSheet = async (sheet: SundayDailyPlanSheet) => {
+    if (!canFollowUp) return;
+    const resetSlots = sheet.slots.map((s) => ({
+      ...s,
+      executionStatus: 'PENDING' as SundaySlotExecutionStatus,
+    }));
+    for (const s of resetSlots) {
+      persistLocalSlotOverride(sheet.id, s.id, { executionStatus: 'PENDING' });
+    }
+    if (canPersistSheetDirectly) {
+      try {
+        await updateDailyPlanSheet(sheet.id, { slots: resetSlots });
+      } catch {
+        // preserved locally
+      }
+    }
+    showToast('የዕለቱ የቀጥታ ክትትል ወደ መጀመሪያው ተመልሷል።');
   };
 
   const handleToggleChecklistItem = async (needItem: string) => {
@@ -795,7 +957,51 @@ export const EhudFollowingScreen: React.FC = () => {
         {/* VIEW 1: PROGRAM DAY LIVE TRACKER (12-COL STUDIO + COMPANION RAIL) */}
         {/* ================================================================= */}
         {viewMode === 'PROGRAM_DAY' && (
-          <div>
+          <div className="space-y-4">
+            {onNavigateToTab && activeSheet && (
+              <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 rounded-xl bg-white dark:bg-[#111D30] border border-slate-200/90 dark:border-slate-800 text-xs">
+                <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onFocusSheetChange?.(activeSheet.id);
+                      onNavigateToTab('EHUD_PLANNING');
+                    }}
+                    className="font-medium hover:text-[#8B0000] dark:hover:text-[#FF8A80] cursor-pointer whitespace-nowrap"
+                  >
+                    1. ዕቅድ
+                  </button>
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-300 dark:text-slate-700" />
+                  <span className="font-semibold text-[#0C4A9E] dark:text-[#7FAFFF]">
+                    2. በዕለቱ ክትትል
+                  </span>
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-300 dark:text-slate-700" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onFocusSheetChange?.(activeSheet.id);
+                      onNavigateToTab('EHUD_RATING');
+                    }}
+                    className="font-medium hover:text-[#B88500] dark:hover:text-[#FFD54F] cursor-pointer whitespace-nowrap"
+                  >
+                    3. ደረጃ ስጥ
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    onFocusSheetChange?.(activeSheet.id);
+                    onNavigateToTab('EHUD_RATING');
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#B88500] hover:bg-[#966C00] text-white text-[11px] font-semibold cursor-pointer whitespace-nowrap shrink-0 transition-colors"
+                >
+                  <Star className="w-3 h-3" />
+                  <span>ወደ ደረጃ መስጫ ሂድ</span>
+                </button>
+              </div>
+            )}
+
             {!activeSheet ? (
               <div className="rounded-2xl bg-white dark:bg-[#111D30] border border-slate-200/90 dark:border-slate-800 p-10 text-center text-xs text-slate-500">
                 ለዚህ ክፍል በዕለቱ የሚከታተሉት የእሁድ መርሐ ግብር ሉህ ገና አልተፈጠረም።
@@ -839,6 +1045,36 @@ export const EhudFollowingScreen: React.FC = () => {
                             </span>
                           </>
                         )}
+                        {activeSheet.presenterOrTeacher && (
+                          <>
+                            <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">·</span>
+                            <span className="text-slate-700 dark:text-slate-200 font-medium">
+                              አቅራቢ፦ {activeSheet.presenterOrTeacher}
+                            </span>
+                          </>
+                        )}
+                        {activeSheet.presenterContact && (() => {
+                          const telHref = formatTelHref(activeSheet.presenterContact);
+                          return (
+                            <>
+                              <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">·</span>
+                              {telHref ? (
+                                <a
+                                  href={telHref}
+                                  className="inline-flex items-center gap-1 font-mono tabular-nums text-[#0C4A9E] dark:text-[#7FAFFF] hover:underline"
+                                >
+                                  <Phone className="w-3 h-3 shrink-0" />
+                                  <span>{activeSheet.presenterContact}</span>
+                                </a>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 font-mono tabular-nums text-slate-600 dark:text-slate-300">
+                                  <Phone className="w-3 h-3 shrink-0" />
+                                  <span>{activeSheet.presenterContact}</span>
+                                </span>
+                              )}
+                            </>
+                          );
+                        })()}
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -864,7 +1100,7 @@ export const EhudFollowingScreen: React.FC = () => {
                             {slotStats.liveSlot ? (
                               <>
                                 <SkipForward className="w-3.5 h-3.5" />
-                                <span>አሁን ያለውን ጨርስ / ቀጣዩን ጀምር</span>
+                                <span>ጨርስና ቀጣዩን ጀምር</span>
                               </>
                             ) : (
                               <>
@@ -872,6 +1108,17 @@ export const EhudFollowingScreen: React.FC = () => {
                                 <span>መርሐ ግብሩን ጀምር</span>
                               </>
                             )}
+                          </button>
+                        )}
+
+                        {canFollowUp && (slotStats.completed > 0 || slotStats.delayed > 0 || slotStats.liveSlot) && (
+                          <button
+                            type="button"
+                            onClick={() => handleResetAllSlotsForSheet(activeSheet)}
+                            className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-slate-800 dark:hover:text-white cursor-pointer"
+                            title="ክትትሉን ዳግም አስጀምር"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
                           </button>
                         )}
                       </div>
@@ -898,6 +1145,99 @@ export const EhudFollowingScreen: React.FC = () => {
                         </span>
                       </div>
                     </div>
+
+                    {/* Active Live Session Pacer Spotlight */}
+                    {slotStats.liveSlot && (() => {
+                      const liveSlot = slotStats.liveSlot;
+                      const timerKey = `${activeSheet.id}_${liveSlot.id}`;
+                      const startedAt = liveSlotTimers[timerKey] || nowMs;
+                      const elapsedSec = Math.max(0, Math.floor((nowMs - startedAt) / 1000));
+                      const plannedDurMin =
+                        daySlotAnalysis?.bySlotId[liveSlot.id]?.durationMin ||
+                        parseTimeRangeValue(liveSlot.timeRange)?.durationMin ||
+                        15;
+                      const plannedSec = plannedDurMin * 60;
+                      const pacePct = Math.min(100, Math.round((elapsedSec / Math.max(60, plannedSec)) * 100));
+                      const overSec = elapsedSec - plannedSec;
+                      const isOvertime = overSec > 0;
+                      const isNearEnd = !isOvertime && plannedSec - elapsedSec <= 180;
+
+                      return (
+                        <div
+                          className={`rounded-xl border p-3.5 space-y-2.5 transition-colors ${
+                            isOvertime
+                              ? 'bg-rose-50/60 dark:bg-rose-950/20 border-rose-200 dark:border-rose-800'
+                              : isNearEnd
+                              ? 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800'
+                              : 'bg-blue-50/50 dark:bg-blue-950/20 border-blue-200/80 dark:border-blue-900/50'
+                          }`}
+                        >
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div className="min-w-0 space-y-0.5">
+                              <div className="flex items-center gap-2 text-[11px]">
+                                <span className="inline-flex items-center gap-1.5 font-semibold text-[#0C4A9E] dark:text-[#7FAFFF]">
+                                  <Timer className="w-3.5 h-3.5" />
+                                  <span>አሁን በመካሄድ ላይ</span>
+                                </span>
+                                <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">·</span>
+                                <span className="font-mono tabular-nums text-slate-600 dark:text-slate-300">
+                                  የታቀደ {plannedDurMin} ደቂቃ ({liveSlot.timeRange})
+                                </span>
+                              </div>
+                              <p className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                                {liveSlot.slotTitle}
+                                {liveSlot.inCharge ? ` · ${liveSlot.inCharge}` : ''}
+                                {liveSlot.inChargeContact ? ` (${liveSlot.inChargeContact})` : ''}
+                              </p>
+                            </div>
+
+                            <div className="flex items-center gap-3 shrink-0">
+                              <div className="text-right">
+                                <span
+                                  className={`text-lg font-mono tabular-nums font-bold block leading-none ${
+                                    isOvertime
+                                      ? 'text-rose-600 dark:text-rose-400'
+                                      : isNearEnd
+                                      ? 'text-amber-700 dark:text-amber-300'
+                                      : 'text-[#0C4A9E] dark:text-[#7FAFFF]'
+                                  }`}
+                                >
+                                  {formatElapsedMmSs(elapsedSec)}
+                                </span>
+                                <span className="text-[10px] font-mono tabular-nums text-slate-500">
+                                  {isOvertime
+                                    ? `+${Math.ceil(overSec / 60)}m አልፏል`
+                                    : `${Math.max(0, Math.ceil((plannedSec - elapsedSec) / 60))}m ቀርቷል`}
+                                </span>
+                              </div>
+
+                              {canFollowUp && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCompleteLiveSlotWithNow(activeSheet, liveSlot)}
+                                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer whitespace-nowrap"
+                                >
+                                  ✓ አሁን ጨርስ
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="h-1.5 rounded-full bg-white/80 dark:bg-slate-800 overflow-hidden">
+                            <div
+                              className={`h-full transition-all duration-500 ${
+                                isOvertime
+                                  ? 'bg-rose-600'
+                                  : isNearEnd
+                                  ? 'bg-amber-500'
+                                  : 'bg-[#0C4A9E]'
+                              }`}
+                              style={{ width: `${pacePct}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   {/* Slots Run-of-Show Subheader */}
@@ -1003,6 +1343,23 @@ export const EhudFollowingScreen: React.FC = () => {
                                         · {liveAsgn ? `ተመድቧል፦ ${liveAsgn.responsibleLeadName}` : slot.inCharge}
                                       </span>
                                     )}
+                                    {slot.inChargeContact && (() => {
+                                      const telHref = formatTelHref(slot.inChargeContact);
+                                      return telHref ? (
+                                        <a
+                                          href={telHref}
+                                          className="inline-flex items-center gap-1 font-mono tabular-nums text-[#0C4A9E] dark:text-[#7FAFFF] hover:underline"
+                                        >
+                                          <Phone className="w-3 h-3 shrink-0" />
+                                          <span>{slot.inChargeContact}</span>
+                                        </a>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-slate-600 dark:text-slate-300">
+                                          <Phone className="w-3 h-3 shrink-0" />
+                                          <span>{slot.inChargeContact}</span>
+                                        </span>
+                                      );
+                                    })()}
                                     {slot.followUpNote && (
                                       <span className="text-[#0C4A9E] dark:text-[#7FAFFF]">
                                         · {slot.followUpNote}
@@ -1091,34 +1448,64 @@ export const EhudFollowingScreen: React.FC = () => {
                             </div>
 
                             {isNoteOpen && canFollowUp && (
-                              <div className="mt-3 pl-8 flex items-center gap-2">
-                                <input
-                                  type="text"
-                                  value={noteDraft}
-                                  onChange={(e) => setNoteDraft(e.target.value)}
-                                  placeholder="በዚህ ክፍለ-ጊዜ የታየ ሁኔታ (ለምሳሌ፡ በሰዓቱ ተጀምሯል / 5 ደቂቃ ዘግይቷል)..."
-                                  className="flex-1 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    await handleUpdateSlotTracking(activeSheet, slot.id, {
-                                      followUpNote: noteDraft.trim(),
-                                    });
-                                    setOpenNoteSlotId(null);
-                                    showToast('የክፍለ-ጊዜ ማስታወሻ ተቀምጧል።');
-                                  }}
-                                  className="px-3 py-1.5 rounded-lg bg-[#0C4A9E] text-white text-xs font-semibold cursor-pointer whitespace-nowrap"
-                                >
-                                  አስቀምጥ
-                                </button>
+                              <div className="mt-3 pl-8 space-y-2">
+                                <div className="flex flex-wrap gap-1.5">
+                                  {DELAY_REASON_PRESETS.map((reason) => (
+                                    <button
+                                      key={reason}
+                                      type="button"
+                                      onClick={() => setNoteDraft(reason)}
+                                      className="px-2 py-0.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-[#0C4A9E] text-[10px] font-medium text-slate-600 dark:text-slate-300 cursor-pointer"
+                                    >
+                                      {reason}
+                                    </button>
+                                  ))}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="text"
+                                    value={noteDraft}
+                                    onChange={(e) => setNoteDraft(e.target.value)}
+                                    placeholder="በዚህ ክፍለ-ጊዜ የታየ ሁኔታ (ለምሳሌ፡ በሰዓቱ ተጀምሯል / 5 ደቂቃ ዘግይቷል)..."
+                                    className="flex-1 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      await handleUpdateSlotTracking(activeSheet, slot.id, {
+                                        followUpNote: noteDraft.trim(),
+                                      });
+                                      setOpenNoteSlotId(null);
+                                      showToast('የክፍለ-ጊዜ ማስታወሻ ተቀምጧል።');
+                                    }}
+                                    className="px-3 py-1.5 rounded-lg bg-[#0C4A9E] text-white text-xs font-semibold cursor-pointer whitespace-nowrap"
+                                  >
+                                    አስቀምጥ
+                                  </button>
+                                </div>
                               </div>
                             )}
 
-                            {isDelayed && !slot.followUpNote && !isNoteOpen && (
-                              <p className="mt-1.5 pl-8 text-[11px] text-amber-700 dark:text-amber-400">
-                                መዘግየት ተመዝግቧል — ምክንያቱን ለመጻፍ የማስታወሻ ቁልፉን ይጫኑ።
-                              </p>
+                            {isDelayed && !slot.followUpNote && !isNoteOpen && canFollowUp && (
+                              <div className="mt-2 pl-8 flex flex-wrap items-center gap-1.5 text-[11px]">
+                                <span className="text-amber-700 dark:text-amber-400 font-medium">
+                                  ፈጣን ምክንያት፦
+                                </span>
+                                {DELAY_REASON_PRESETS.map((reason) => (
+                                  <button
+                                    key={reason}
+                                    type="button"
+                                    onClick={() =>
+                                      handleUpdateSlotTracking(activeSheet, slot.id, {
+                                        followUpNote: reason,
+                                      })
+                                    }
+                                    className="px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 hover:bg-amber-100 cursor-pointer text-[10px] font-medium"
+                                  >
+                                    {reason}
+                                  </button>
+                                ))}
+                              </div>
                             )}
                           </div>
                         );
@@ -1253,6 +1640,36 @@ export const EhudFollowingScreen: React.FC = () => {
                       )}
                     </div>
 
+                    {/* LIVE ATTENDANCE QUICK TALLY CARD */}
+                    <div className="px-5 py-3.5 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2 bg-slate-50/40 dark:bg-slate-900/20">
+                      <div>
+                        <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 block">
+                          የዕለቱ ተሳታፊ ብዛት (Attendance)
+                        </span>
+                        <span className="text-lg font-mono tabular-nums font-bold text-slate-900 dark:text-white">
+                          {dayAttendance}
+                        </span>
+                      </div>
+                      {canFollowUp && (
+                        <div className="flex items-center gap-1">
+                          {[-5, -1, 1, 5, 10].map((delta) => (
+                            <button
+                              key={delta}
+                              type="button"
+                              onClick={() => setDayAttendance((prev) => Math.max(0, prev + delta))}
+                              className={`px-2 py-1 rounded-md border text-[11px] font-mono tabular-nums font-semibold cursor-pointer transition-colors ${
+                                delta > 0
+                                  ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50/60 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100'
+                                  : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100'
+                              }`}
+                            >
+                              {delta > 0 ? `+${delta}` : delta}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
                     {showDaySummaryForm && canFollowUp && (
                       <form
                         onSubmit={handleSaveDaySummary}
@@ -1294,6 +1711,26 @@ export const EhudFollowingScreen: React.FC = () => {
                           <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
                             በዕለቱ የታዩ ምልከታዎች
                           </label>
+                          <div className="flex flex-wrap gap-1 mb-1.5">
+                            {QUICK_OBSERVATION_PRESETS.map((preset) => (
+                              <button
+                                key={preset}
+                                type="button"
+                                onClick={() =>
+                                  setDayObservations((prev) =>
+                                    prev.includes(preset)
+                                      ? prev
+                                      : prev.trim()
+                                      ? `${prev.trim()} ${preset}`
+                                      : preset
+                                  )
+                                }
+                                className="px-2 py-0.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-[#0C4A9E] text-[10px] text-slate-600 dark:text-slate-300 cursor-pointer text-left"
+                              >
+                                + {preset.slice(0, 24)}...
+                              </button>
+                            ))}
+                          </div>
                           <textarea
                             rows={2}
                             value={dayObservations}

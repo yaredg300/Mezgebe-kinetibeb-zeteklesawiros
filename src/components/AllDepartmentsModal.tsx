@@ -15,9 +15,14 @@ import {
   ChevronRight,
   Lock,
   Crown,
-  AlertTriangle,
 } from 'lucide-react';
 import { useArchive } from '../context/ArchiveContext';
+import { AuthErrorAlert } from './AuthErrorAlert';
+import {
+  PRIMARY_FIREBASE_ADMIN_EMAIL,
+  getAuthErrorMessageAmharic,
+  isMasterOperatorEmail,
+} from '../firebase/config';
 import { DepartmentInfo, SundaySchoolDepartment } from '../types';
 
 interface AllDepartmentsModalProps {
@@ -44,6 +49,8 @@ export const AllDepartmentsModal: React.FC<AllDepartmentsModalProps> = ({
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [lockedAlertDept, setLockedAlertDept] = useState<DepartmentInfo | null>(null);
+  const [masterLoginError, setMasterLoginError] = useState<string | null>(null);
+  const [isLoggingInMaster, setIsLoggingInMaster] = useState(false);
 
   // New department form
   const [newTitle, setNewTitle] = useState('');
@@ -54,6 +61,28 @@ export const AllDepartmentsModal: React.FC<AllDepartmentsModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!isOpen) return null;
+
+  const handleMasterOperatorLogin = async () => {
+    setMasterLoginError(null);
+    setIsLoggingInMaster(true);
+    try {
+      const user = await loginAsMasterOperator();
+      if (user) {
+        if (isMasterOperatorEmail(user.email)) {
+          setLockedAlertDept(null);
+        } else {
+          setMasterLoginError(
+            `የገቡት በ«${user.email}» ነው። ሁሉንም ክፍሎች መክፈት የሚችለው ዋና አስተባባሪ (${PRIMARY_FIREBASE_ADMIN_EMAIL}) ብቻ ነው።`
+          );
+        }
+      }
+    } catch (err: any) {
+      const msg = getAuthErrorMessageAmharic(err);
+      if (msg) setMasterLoginError(msg);
+    } finally {
+      setIsLoggingInMaster(false);
+    }
+  };
 
   const handleCreateDepartment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -152,7 +181,7 @@ export const AllDepartmentsModal: React.FC<AllDepartmentsModalProps> = ({
                 <Crown className="w-5 h-5 text-amber-600 shrink-0" />
                 <div>
                   <span className="text-[10px] font-bold text-[#B88500] uppercase block">
-                    ዋና አስተባባሪ (Master Operator: goferconstruction@gmail.com)
+                    ዋና አስተባባሪ (Master Operator: {PRIMARY_FIREBASE_ADMIN_EMAIL})
                   </span>
                   <span className="text-xs font-bold text-slate-800 dark:text-slate-100 font-serif-ethiopic">
                     ሁሉም ክፍሎች ለእርስዎ ክፍት ናቸው፤ ወደ ማናቸውም ክፍል መቀየር ይችላሉ።
@@ -181,12 +210,13 @@ export const AllDepartmentsModal: React.FC<AllDepartmentsModalProps> = ({
 
               <button
                 type="button"
-                onClick={() => loginAsMasterOperator()}
-                className="py-1.5 px-3 rounded-xl bg-gradient-to-r from-[#B88500] to-[#8B0000] text-white text-xs font-bold shrink-0 hover:brightness-105 flex items-center gap-1"
-                title="Master Operator Login"
+                disabled={isLoggingInMaster}
+                onClick={handleMasterOperatorLogin}
+                className="py-1.5 px-3 rounded-xl bg-gradient-to-r from-[#B88500] to-[#8B0000] text-white text-xs font-bold shrink-0 hover:brightness-105 flex items-center gap-1 disabled:opacity-60"
+                title={`Master Operator Login (${PRIMARY_FIREBASE_ADMIN_EMAIL})`}
               >
                 <Crown className="w-3.5 h-3.5" />
-                <span>ዋና አስተባባሪ (Unlock)</span>
+                <span>{isLoggingInMaster ? 'በመገናኘት ላይ...' : 'ዋና አስተባባሪ (Unlock)'}</span>
               </button>
             </div>
           ) : (
@@ -194,6 +224,11 @@ export const AllDepartmentsModal: React.FC<AllDepartmentsModalProps> = ({
               የሚያገለግሉበትን አንድ ክፍል ይምረጡ፤ አንድ ክፍል ሲመርጡ ሌሎች ክፍሎች በሙሉ ይቆለፋሉ።
             </div>
           )}
+
+          <AuthErrorAlert
+            message={masterLoginError}
+            onDismiss={() => setMasterLoginError(null)}
+          />
 
           {/* Department List */}
           <div>
@@ -404,19 +439,23 @@ export const AllDepartmentsModal: React.FC<AllDepartmentsModalProps> = ({
               «{lockedAlertDept.titleAmharic}» ተቆልፏል
             </h3>
             <p className="text-xs text-slate-600 font-serif-ethiopic mt-2 leading-relaxed">
-              በሰንበት ት/ቤት ደንብ መሠረት እያንዳንዱ አገልጋይ በአንድ ክፍል ብቻ እንዲያገለግል ይመደባል። ሙሉውን ክፍሎች መክፈት የሚችለው ዋና አስተባባሪ (Master Operator: goferconstruction@gmail.com) ብቻ ነው።
+              በሰንበት ት/ቤት ደንብ መሠረት እያንዳንዱ አገልጋይ በአንድ ክፍል ብቻ እንዲያገለግል ይመደባል። ሙሉውን ክፍሎች መክፈት የሚችለው ዋና አስተባባሪ (Master Operator: {PRIMARY_FIREBASE_ADMIN_EMAIL}) ብቻ ነው።
             </p>
+            <AuthErrorAlert
+              message={masterLoginError}
+              onDismiss={() => setMasterLoginError(null)}
+              className="mt-2.5"
+            />
             <div className="mt-4 flex flex-col gap-1.5">
               <button
                 type="button"
-                onClick={() => {
-                  loginAsMasterOperator();
-                  setLockedAlertDept(null);
-                  onClose();
-                }}
-                className="w-full py-2 rounded-xl bg-gradient-to-r from-[#B88500] to-[#8B0000] text-white text-xs font-bold hover:brightness-105"
+                disabled={isLoggingInMaster}
+                onClick={handleMasterOperatorLogin}
+                className="w-full py-2 rounded-xl bg-gradient-to-r from-[#B88500] to-[#8B0000] text-white text-xs font-bold hover:brightness-105 disabled:opacity-60"
               >
-                👑 እንደ ዋና አስተባባሪ (goferconstruction@gmail.com) ክፈት
+                {isLoggingInMaster
+                  ? 'በመገናኘት ላይ...'
+                  : `👑 እንደ ዋና አስተባባሪ (${PRIMARY_FIREBASE_ADMIN_EMAIL}) ክፈት`}
               </button>
               <button
                 type="button"

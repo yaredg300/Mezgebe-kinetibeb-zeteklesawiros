@@ -78,6 +78,7 @@ export interface SyncedEhudPlanTarget {
   subtitle?: string;
   squadOrResponsible?: string;
   presenterOrLeader?: string;
+  presenterContact?: string;
   timeAmharic?: string;
   scriptureRef?: string;
   goal?: string;
@@ -235,6 +236,7 @@ export function getSyncedPlansForDivision(params: {
         monthAmharic: plan.monthAmharic,
         squadOrResponsible: plan.squadName,
         presenterOrLeader: plan.presenterName,
+        presenterContact: plan.presenterContact,
         scriptureRef: plan.scriptureRef,
         goal: plan.goal,
         source: 'custom_plan',
@@ -256,6 +258,7 @@ export function getSyncedPlansForDivision(params: {
         subtitle: `${sheet.slots.length} ክፍለ-ጊዜዎች • ${sheet.preProgramNeeds.length} ቅድመ-ዝግጅቶች`,
         squadOrResponsible: sheet.squadName || sheet.leader,
         presenterOrLeader: sheet.presenterOrTeacher || sheet.leader,
+        presenterContact: sheet.presenterContact,
         timeAmharic: sheet.timeAmharic,
         goal: sheet.purpose,
         isComingSoon: index === 0 && (rank >= currentRank || sortedSheets.length > 0),
@@ -279,6 +282,7 @@ export function getSyncedPlansForDivision(params: {
         monthAmharic: plan.monthAmharic,
         squadOrResponsible: plan.squadName,
         presenterOrLeader: plan.presenterName,
+        presenterContact: plan.presenterContact,
         scriptureRef: plan.scriptureRef,
         goal: plan.goal,
         source: 'custom_plan',
@@ -333,6 +337,7 @@ export function getSyncedPlansForDivision(params: {
           subtitle: entry.category,
           squadOrResponsible: hl?.squad || entry.leader || linked?.squadName || 'ተረኛ ምድብ',
           presenterOrLeader: entry.presenterOrTeacher || linked?.presenterOrTeacher || entry.leader,
+          presenterContact: linked?.presenterContact,
           timeAmharic: entry.timeAmharic,
           scriptureRef: hl?.scripture,
           goal: entry.goalAmharic || hl?.motto || `${entry.monthAmharic} ሳምንታዊ የእሁድ መርሐ ግብር`,
@@ -357,6 +362,7 @@ export function getSyncedPlansForDivision(params: {
       monthAmharic: plan.monthAmharic,
       squadOrResponsible: plan.squadName,
       presenterOrLeader: plan.presenterName,
+      presenterContact: plan.presenterContact,
       scriptureRef: plan.scriptureRef,
       goal: plan.goal,
       source: 'custom_plan',

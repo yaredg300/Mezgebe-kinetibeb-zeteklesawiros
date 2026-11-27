@@ -476,3 +476,182 @@ export function checkCandidateIntervalOverlap(params: {
     recommendedInterval,
   };
 }
+
+/**
+ * Aligns all slots sequentially starting from the program start window without gaps or overlaps,
+ * preserving each slot's duration (falling back to 15 min when unparsed).
+ */
+export function autoChainDailySlots(
+  slots: SundayTimetableSlot[],
+  programTimeRange?: string
+): SundayTimetableSlot[] {
+  if (slots.length === 0) return [];
+  const { startMin } = parseProgramWindow(programTimeRange);
+  let cursor = startMin;
+
+  return slots.map((slot) => {
+    const parsed = parseTimeRangeValue(slot.timeRange, cursor);
+    const dur = parsed && parsed.durationMin > 0 ? parsed.durationMin : 15;
+    const slotStart = cursor;
+    const slotEnd = slotStart + dur;
+    cursor = slotEnd;
+    return {
+      ...slot,
+      timeRange: formatIntervalToClockRange(slotStart, slotEnd),
+    };
+  });
+}
+
+/**
+ * Adjusts a single slot's duration by deltaMin (e.g. +5 or -5) clamped to [5, 180].
+ * When cascadeSequential is true (default), subsequent interval slots shift cleanly to avoid overlaps.
+ */
+export function adjustSlotDuration(
+  slots: SundayTimetableSlot[],
+  slotId: string,
+  deltaMin: number,
+  programTimeRange?: string,
+  cascadeSequential: boolean = true
+): SundayTimetableSlot[] {
+  const { startMin: progStart } = parseProgramWindow(programTimeRange);
+  const idx = slots.findIndex((s) => s.id === slotId);
+  if (idx === -1) return slots;
+
+  const target = slots[idx];
+  const parsed = parseTimeRangeValue(target.timeRange, progStart);
+  const baseDur = parsed && parsed.durationMin > 0 ? parsed.durationMin : 15;
+  const nextDur = Math.max(5, Math.min(180, baseDur + deltaMin));
+
+  if (parsed?.kind === 'DURATION' && !cascadeSequential) {
+    return slots.map((s) =>
+      s.id === slotId ? { ...s, timeRange: `${nextDur} ደቂቃ` } : s
+    );
+  }
+
+  let anchor = parsed?.startMin;
+  if (anchor === undefined) {
+    anchor = progStart;
+    for (let i = 0; i < idx; i++) {
+      const p = parseTimeRangeValue(slots[i].timeRange, anchor);
+      if (p?.kind === 'INTERVAL' && p.endMin !== undefined) {
+        anchor = p.endMin;
+      } else if (p) {
+        anchor += p.durationMin;
+      }
+    }
+  }
+
+  const nextSlots = [...slots];
+  const newTargetEnd = anchor + nextDur;
+  nextSlots[idx] = {
+    ...target,
+    timeRange:
+      parsed?.kind === 'DURATION'
+        ? `${nextDur} ደቂቃ`
+        : formatIntervalToClockRange(anchor, newTargetEnd),
+  };
+
+  if (!cascadeSequential) return nextSlots;
+
+  // Ripple subsequent slots sequentially from target's new end if target uses explicit interval
+  if (parsed?.kind !== 'DURATION') {
+    let cursor = newTargetEnd;
+    for (let i = idx + 1; i < nextSlots.length; i++) {
+      const p = parseTimeRangeValue(nextSlots[i].timeRange, cursor);
+      if (p?.kind === 'DURATION') {
+        cursor += p.durationMin;
+        continue;
+      }
+      const dur = p && p.durationMin > 0 ? p.durationMin : 15;
+      nextSlots[i] = {
+        ...nextSlots[i],
+        timeRange: formatIntervalToClockRange(cursor, cursor + dur),
+      };
+      cursor += dur;
+    }
+  }
+
+  return nextSlots;
+}
+
+/**
+ * Proportionally scales slot durations (in 5-min increments, minimum 5 min each)
+ * to fit the exact division program window and chains them seamlessly.
+ */
+export function rebalanceSlotsToFitWindow(
+  slots: SundayTimetableSlot[],
+  programTimeRange?: string
+): SundayTimetableSlot[] {
+  if (slots.length === 0) return [];
+  const { startMin, endMin } = parseProgramWindow(programTimeRange);
+  const capacity = Math.max(slots.length * 5, endMin - startMin);
+
+  const rawDurations = slots.map((s) => {
+    const p = parseTimeRangeValue(s.timeRange, startMin);
+    return p && p.durationMin > 0 ? p.durationMin : 15;
+  });
+  const totalRaw = rawDurations.reduce((a, b) => a + b, 0) || slots.length * 15;
+
+  // Scale rounded to 5 minutes, minimum 5 min per slot
+  const scaled = rawDurations.map((d) =>
+    Math.max(5, Math.round(((d / totalRaw) * capacity) / 5) * 5)
+  );
+
+  // Distribute remainder onto the longest slot(s)
+  let diff = capacity - scaled.reduce((a, b) => a + b, 0);
+  if (diff !== 0 && scaled.length > 0) {
+    let guard = 0;
+    while (diff !== 0 && guard < 100) {
+      guard++;
+      // Pick longest slot when shrinking, or longest slot when expanding
+      let bestIdx = 0;
+      for (let i = 1; i < scaled.length; i++) {
+        if (scaled[i] > scaled[bestIdx]) bestIdx = i;
+      }
+      const step = diff > 0 ? Math.min(5, diff) : -Math.min(5, Math.abs(diff));
+      if (scaled[bestIdx] + step >= 5) {
+        scaled[bestIdx] += step;
+        diff -= step;
+      } else {
+        break;
+      }
+    }
+  }
+
+  let cursor = startMin;
+  return slots.map((slot, i) => {
+    const dur = scaled[i];
+    const nextRange = formatIntervalToClockRange(cursor, cursor + dur);
+    cursor += dur;
+    return { ...slot, timeRange: nextRange };
+  });
+}
+
+/**
+ * Suggests the cleanest clock interval for a newly added slot of `durationMin` minutes.
+ */
+export function getNextRecommendedSlotRange(
+  slots: SundayTimetableSlot[],
+  durationMin: number = 15,
+  programTimeRange?: string
+): string {
+  const cleanDur = Math.max(5, Math.min(180, durationMin));
+  const analysis = analyzeDailySlotTimes(slots, programTimeRange);
+  const fittingGap = analysis.gapZones.find((g) => g.durationMin >= cleanDur);
+  if (fittingGap) {
+    return formatIntervalToClockRange(fittingGap.startMin, fittingGap.startMin + cleanDur);
+  }
+  const positioned = analysis.analyzedSlots.filter(
+    (s): s is AnalyzedSlot & { startMin: number; endMin: number } =>
+      s.startMin !== null && s.endMin !== null
+  );
+  if (positioned.length === 0) {
+    return formatIntervalToClockRange(
+      analysis.programStartMin,
+      analysis.programStartMin + cleanDur
+    );
+  }
+  const maxEnd = Math.max(...positioned.map((p) => p.endMin));
+  return formatIntervalToClockRange(maxEnd, maxEnd + cleanDur);
+}
+

@@ -24,6 +24,7 @@ import {
   X,
   ChevronDown,
   ChevronUp,
+  Phone,
 } from 'lucide-react';
 import { useArchive } from '../context/ArchiveContext';
 import {
@@ -69,6 +70,12 @@ const ETHIOPIAN_MONTH_NAMES = [
 
 type PlanTab = 'daily' | 'monthly' | 'annual' | 'squads' | 'pdfs';
 
+const formatTelHref = (contact?: string): string | null => {
+  if (!contact) return null;
+  const cleaned = contact.replace(/[^\d+]/g, '');
+  return cleaned.length >= 7 ? `tel:${cleaned}` : null;
+};
+
 interface DailySheetFormState {
   dateAmharic: string;
   monthAmharic: string;
@@ -77,6 +84,7 @@ interface DailySheetFormState {
   mainTopic: string;
   leader: string;
   presenterOrTeacher: string;
+  presenterContact: string;
   purpose: string;
   preProgramNeedsText: string;
   slots: SundayTimetableSlot[];
@@ -154,6 +162,7 @@ export const EhudMerhaGibirScreen: React.FC<{
     mainTopic: '',
     leader: '',
     presenterOrTeacher: '',
+    presenterContact: '',
     purpose: '',
     preProgramNeedsText: 'ማይክሮፎንና ድምፅ ማጉያ\nየመጽሐፍ ቅዱስና ስንክሳር ቅጂ\nየመገኘት መዝገብ',
     slots: [
@@ -343,6 +352,7 @@ export const EhudMerhaGibirScreen: React.FC<{
       mainTopic: '',
       leader: '',
       presenterOrTeacher: '',
+      presenterContact: '',
       purpose: '',
       preProgramNeedsText: 'ማይክሮፎንና ድምፅ ማጉያ\nየመጽሐፍ ቅዱስና ስንክሳር ቅጂ\nየመገኘት መዝገብ',
       slots: [
@@ -364,6 +374,7 @@ export const EhudMerhaGibirScreen: React.FC<{
       mainTopic: sheet.mainTopic,
       leader: sheet.leader,
       presenterOrTeacher: sheet.presenterOrTeacher,
+      presenterContact: sheet.presenterContact || '',
       purpose: sheet.purpose,
       preProgramNeedsText: sheet.preProgramNeeds.join('\n'),
       slots: sheet.slots.map((s) => ({ ...s })),
@@ -379,7 +390,14 @@ export const EhudMerhaGibirScreen: React.FC<{
       .split('\n')
       .map((s) => s.trim())
       .filter(Boolean);
-    const cleanedSlots = sheetForm.slots.filter((s) => s.slotTitle.trim());
+    const cleanedSlots = sheetForm.slots
+      .filter((s) => s.slotTitle.trim())
+      .map((s) => ({
+        ...s,
+        slotTitle: s.slotTitle.trim(),
+        inCharge: s.inCharge?.trim() || '',
+        inChargeContact: s.inChargeContact?.trim() || undefined,
+      }));
 
     try {
       if (editingSheetId) {
@@ -391,6 +409,7 @@ export const EhudMerhaGibirScreen: React.FC<{
           mainTopic: sheetForm.mainTopic.trim(),
           leader: sheetForm.leader.trim() || 'ተረኛ መሪ',
           presenterOrTeacher: sheetForm.presenterOrTeacher.trim() || 'ተረኛ መምህር',
+          presenterContact: sheetForm.presenterContact.trim(),
           purpose: sheetForm.purpose.trim(),
           preProgramNeeds: cleanedNeeds,
           slots: cleanedSlots,
@@ -408,6 +427,7 @@ export const EhudMerhaGibirScreen: React.FC<{
           mainTopic: sheetForm.mainTopic.trim(),
           leader: sheetForm.leader.trim() || 'ተረኛ መሪ',
           presenterOrTeacher: sheetForm.presenterOrTeacher.trim() || 'ተረኛ መምህር',
+          presenterContact: sheetForm.presenterContact.trim() || undefined,
           purpose: sheetForm.purpose.trim(),
           preProgramNeeds: cleanedNeeds,
           slots: cleanedSlots,
@@ -717,6 +737,31 @@ export const EhudMerhaGibirScreen: React.FC<{
                         <h3 className="text-base sm:text-lg font-bold font-serif-ethiopic text-slate-900 dark:text-white mt-0.5">
                           {activeDailySheet.mainTopic}
                         </h3>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span>
+                            አቅራቢ / መምህር፦{' '}
+                            <strong className="text-slate-800 dark:text-slate-100">
+                              {activeDailySheet.presenterOrTeacher || '—'}
+                            </strong>
+                          </span>
+                          {activeDailySheet.presenterContact && (() => {
+                            const telHref = formatTelHref(activeDailySheet.presenterContact);
+                            return telHref ? (
+                              <a
+                                href={telHref}
+                                className="inline-flex items-center gap-1 font-mono tabular-nums text-[#0C4A9E] dark:text-[#7FAFFF] hover:underline"
+                              >
+                                <Phone className="w-3 h-3 shrink-0" />
+                                <span>{activeDailySheet.presenterContact}</span>
+                              </a>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 font-mono tabular-nums text-slate-600 dark:text-slate-300">
+                                <Phone className="w-3 h-3 shrink-0" />
+                                <span>{activeDailySheet.presenterContact}</span>
+                              </span>
+                            );
+                          })()}
+                        </p>
                       </div>
 
                       {/* Export & Admin Controls */}
@@ -828,9 +873,30 @@ export const EhudMerhaGibirScreen: React.FC<{
                                     <p className="text-xs font-bold text-slate-900 dark:text-slate-100">
                                       {slot.slotTitle}
                                     </p>
-                                    {(slot.inCharge || slot.notes || liveAsgn || analyzedSlot?.hasOverlap) && (
+                                    {(slot.inCharge || slot.inChargeContact || slot.notes || liveAsgn || analyzedSlot?.hasOverlap) && (
                                       <p className="text-[11px] text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-x-2">
-                                        {slot.inCharge && <span>{slot.inCharge}</span>}
+                                        {slot.inCharge && (
+                                          <span>
+                                            አቅራቢ፦ <strong className="font-semibold text-slate-700 dark:text-slate-200">{slot.inCharge}</strong>
+                                          </span>
+                                        )}
+                                        {slot.inChargeContact && (() => {
+                                          const telHref = formatTelHref(slot.inChargeContact);
+                                          return telHref ? (
+                                            <a
+                                              href={telHref}
+                                              className="inline-flex items-center gap-1 font-mono tabular-nums text-[#0C4A9E] dark:text-[#7FAFFF] hover:underline"
+                                            >
+                                              <Phone className="w-2.5 h-2.5 shrink-0" />
+                                              <span>{slot.inChargeContact}</span>
+                                            </a>
+                                          ) : (
+                                            <span className="inline-flex items-center gap-1 font-mono tabular-nums text-slate-600 dark:text-slate-300">
+                                              <Phone className="w-2.5 h-2.5 shrink-0" />
+                                              <span>{slot.inChargeContact}</span>
+                                            </span>
+                                          );
+                                        })()}
                                         {liveAsgn && (
                                           <span className="font-semibold text-emerald-700 dark:text-emerald-400">
                                             · ተመድቧል፦ {liveAsgn.responsibleLeadName}
@@ -929,10 +995,22 @@ export const EhudMerhaGibirScreen: React.FC<{
                         {extrasOpen && (
                           <div className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111D30]">
                             <div className="px-4 py-2.5 border-b border-slate-200 dark:border-slate-800 space-y-1.5 text-xs">
-                              <p className="text-slate-600 dark:text-slate-300">
-                                መሪ፦ <strong className="text-[#8B0000] dark:text-[#FF8A80]">{activeDailySheet.leader}</strong>
-                                <span aria-hidden="true"> · </span>
-                                አቅራቢ / መምህር፦ <strong className="text-[#B88500] dark:text-[#FFD54F]">{activeDailySheet.presenterOrTeacher}</strong>
+                              <p className="text-slate-600 dark:text-slate-300 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                                <span>
+                                  መሪ፦ <strong className="text-[#8B0000] dark:text-[#FF8A80]">{activeDailySheet.leader}</strong>
+                                </span>
+                                <span aria-hidden="true">·</span>
+                                <span>
+                                  አቅራቢ / መምህር፦ <strong className="text-[#B88500] dark:text-[#FFD54F]">{activeDailySheet.presenterOrTeacher}</strong>
+                                </span>
+                                {activeDailySheet.presenterContact && (
+                                  <>
+                                    <span aria-hidden="true">·</span>
+                                    <span className="font-mono tabular-nums text-[#0C4A9E] dark:text-[#7FAFFF]">
+                                      {activeDailySheet.presenterContact}
+                                    </span>
+                                  </>
+                                )}
                               </p>
                               {activeDailySheet.purpose && (
                                 <p className="text-xs text-slate-700 dark:text-slate-300 bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 rounded-lg px-3 py-1.5">
@@ -1662,7 +1740,7 @@ export const EhudMerhaGibirScreen: React.FC<{
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
                     ተረኛ መሪ / ምድብ
@@ -1677,16 +1755,32 @@ export const EhudMerhaGibirScreen: React.FC<{
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    አቅራቢ / መምህር
+                    አቅራቢ / መምህር *
                   </label>
                   <input
                     type="text"
+                    required
                     value={sheetForm.presenterOrTeacher}
                     onChange={(e) =>
                       setSheetForm({ ...sheetForm, presenterOrTeacher: e.target.value })
                     }
                     placeholder="የመምህር ወይም አቅራቢ ስም"
                     className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    የአቅራቢ ስልክ ቁጥር (Phone)
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="tel"
+                    value={sheetForm.presenterContact}
+                    onChange={(e) =>
+                      setSheetForm({ ...sheetForm, presenterContact: e.target.value })
+                    }
+                    placeholder="0911 00 00 00"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono tabular-nums"
                   />
                 </div>
               </div>
@@ -1742,6 +1836,15 @@ export const EhudMerhaGibirScreen: React.FC<{
                 )}
 
                 <div className="space-y-2">
+                  {sheetForm.slots.length > 0 && (
+                    <div className="hidden sm:grid grid-cols-12 gap-2 px-1 text-[10px] font-bold text-slate-400 dark:text-slate-500">
+                      <span className="col-span-3">ሰዓት</span>
+                      <span className="col-span-4">የክፍለ-ጊዜ ርዕስ</span>
+                      <span className="col-span-2">አቅራቢ ስም</span>
+                      <span className="col-span-2">ስልክ ቁጥር</span>
+                      <span className="col-span-1 text-right"></span>
+                    </div>
+                  )}
                   {sheetForm.slots.map((slot, idx) => (
                     <div key={slot.id} className="grid grid-cols-12 gap-2 items-center">
                       <ClockTimePicker
@@ -1767,7 +1870,7 @@ export const EhudMerhaGibirScreen: React.FC<{
                           setSheetForm({ ...sheetForm, slots: next });
                         }}
                         placeholder="የክፍለ-ጊዜ ርዕስ"
-                        className="col-span-5 px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800"
+                        className="col-span-4 px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800"
                       />
                       <input
                         type="text"
@@ -1777,8 +1880,20 @@ export const EhudMerhaGibirScreen: React.FC<{
                           next[idx] = { ...slot, inCharge: e.target.value };
                           setSheetForm({ ...sheetForm, slots: next });
                         }}
-                        placeholder="ኃላፊ"
-                        className="col-span-3 px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800"
+                        placeholder="የአቅራቢ ስም"
+                        className="col-span-2 px-2 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800"
+                      />
+                      <input
+                        type="text"
+                        inputMode="tel"
+                        value={slot.inChargeContact || ''}
+                        onChange={(e) => {
+                          const next = [...sheetForm.slots];
+                          next[idx] = { ...slot, inChargeContact: e.target.value };
+                          setSheetForm({ ...sheetForm, slots: next });
+                        }}
+                        placeholder="0911..."
+                        className="col-span-2 px-2 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono tabular-nums"
                       />
                       <button
                         type="button"

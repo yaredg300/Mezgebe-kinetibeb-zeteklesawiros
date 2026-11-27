@@ -14,6 +14,8 @@ import { WorkCard } from '../components/Cards';
 import { HaragDivider, ManuscriptBox } from '../components/Ornaments';
 import { QuickWorkPreviewModal } from '../components/LiturgicalAudioComponents';
 import firebaseConfig from '../../firebase-applet-config.json';
+import { getAuthErrorMessageAmharic } from '../firebase/config';
+import { AuthErrorAlert } from '../components/AuthErrorAlert';
 import {
   User,
   ShieldCheck,
@@ -91,6 +93,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   const [selectedDeptProfile, setSelectedDeptProfile] = useState<string>(activeDepartment || 'kinetibeb');
   const [driveNotice, setDriveNotice] = useState<string | null>(null);
   const [isConnectingDrive, setIsConnectingDrive] = useState<boolean>(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const isEhudActive = activeDepartment === 'ehud_merha_gibir';
   const allowCrossDeptSwitch = !isDepartmentPortalLocked && (isSuperAdmin || canSwitchDepartments);
@@ -966,13 +969,19 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
           <span className="font-bold">Google Cloud & Firebase ተገናኝቷል፦</span>
           <span className="font-mono text-[11px] text-[#0C4A9E] dark:text-[#7FAFFF]">
-            {firebaseConfig.projectId || 'ferrous-sweep-9pz3c'}
+            {firebaseConfig.projectId || 'gen-lang-client-0758450640'}
           </span>
         </div>
         <span className="text-[11px] text-slate-500">
           {firebaseUser ? `የገቡበት አካውንት፦ ${firebaseUser.email}` : 'ያልገቡበት ሁኔታ (Guest)'}
         </span>
       </div>
+
+      <AuthErrorAlert
+        message={authError}
+        onDismiss={() => setAuthError(null)}
+        className="mt-4"
+      />
 
       {/* Switch Division & Logout Footer */}
       <div className="mt-6 pt-4 border-t border-[#B88500]/20 flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -989,10 +998,12 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
             <button
               type="button"
               onClick={async () => {
+                setAuthError(null);
                 try {
                   await signInWithGoogle();
-                } catch {
-                  // Handled safely
+                } catch (err: any) {
+                  const msg = getAuthErrorMessageAmharic(err);
+                  if (msg) setAuthError(msg);
                 }
               }}
               className="text-xs font-bold text-[#0C4A9E] dark:text-[#7FAFFF] hover:underline flex items-center gap-1.5 py-2 px-3 cursor-pointer"
@@ -1013,10 +1024,12 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           <div className="flex items-center gap-2">
             <button
               onClick={async () => {
+                setAuthError(null);
                 try {
                   await signInWithGoogle();
-                } catch {
-                  // Handled safely
+                } catch (err: any) {
+                  const msg = getAuthErrorMessageAmharic(err);
+                  if (msg) setAuthError(msg);
                 }
               }}
               className="text-xs font-bold text-[#0C4A9E] dark:text-[#7FAFFF] hover:underline flex items-center gap-1.5 py-2 px-3 cursor-pointer"

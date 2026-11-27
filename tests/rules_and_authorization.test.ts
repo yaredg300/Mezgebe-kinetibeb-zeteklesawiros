@@ -14,7 +14,19 @@ import { getCanonicalMembershipId, sanitizeFirestorePayload } from '../src/utils
 import {
   analyzeDailySlotTimes,
   checkCandidateIntervalOverlap,
+  autoChainDailySlots,
+  adjustSlotDuration,
+  rebalanceSlotsToFitWindow,
+  getNextRecommendedSlotRange,
 } from '../src/utils/timeOverlap';
+import {
+  PRIMARY_FIREBASE_ADMIN_EMAIL,
+  SUPER_ADMIN_EMAILS,
+  isMasterOperatorEmail,
+  isSingleDepartmentLocked,
+  getAuthErrorMessageAmharic,
+} from '../src/firebase/authPolicy';
+import { getSyncedPlansForDivision } from '../src/utils/ehudPlanSync';
 
 function assert(condition: boolean, message: string) {
   if (!condition) {
@@ -245,6 +257,7 @@ async function runTests() {
       targetDateAmharic: 'ኅዳር 13 2019 ዓ.ም.',
       squadName: undefined,
       presenterName: 'ዲ/ን ሚካኤል',
+      presenterContact: '+251911223344',
       scriptureRef: undefined,
       goal: 'የወጣቶች መንፈሳዊ እድገት',
       resourcesNeeded: ['ማይክሮፎን', 'መዝሙር ጥራዝ'],
@@ -257,9 +270,65 @@ async function runTests() {
 
     assert(!('squadName' in planPayload), 'Optional empty squadName must be stripped');
     assert(!('scriptureRef' in planPayload), 'Optional empty scriptureRef must be stripped');
+    assert(planPayload.presenterContact === '+251911223344', 'Plan presenterContact must be retained');
+    assert(planPayload.presenterContact.length <= 100, 'Plan presenterContact must fit <= 100 char rule');
     assert(planPayload.departmentId === 'ehud_merha_gibir', 'Plan must scope to ehud_merha_gibir');
     assert(allowedScopes.includes(planPayload.planScope), 'Plan scope must be DAILY | WEEKLY | YEARLY');
     assert(['DRAFT', 'READY', 'SCHEDULED'].includes(planPayload.status), 'Valid plan status');
+
+    const dailySheetPayload = sanitizeFirestorePayload({
+      id: 'sheet_test_1',
+      division: 'youth' as const,
+      dateAmharic: 'ኅዳር 6 2019 ዓ.ም.',
+      monthAmharic: 'ኅዳር',
+      dayNumber: 6,
+      timeAmharic: '7:30–9:30',
+      mainTopic: 'የወጣቶች ጉባኤ',
+      leader: 'ምድብ 01',
+      presenterOrTeacher: 'ዲ/ን ሚካኤል',
+      presenterContact: '@deacon_michael',
+      purpose: 'መንፈሳዊ ዕድገት',
+      slots: [
+        {
+          id: 'slot_1',
+          timeRange: '30 ደቂቃ',
+          slotTitle: 'ትምህርት',
+          inCharge: 'ዲ/ን ሚካኤል',
+          inChargeContact: '+251911223344',
+        },
+        {
+          id: 'slot_2',
+          timeRange: '15 ደቂቃ',
+          slotTitle: 'ጸሎት',
+          inCharge: 'መሪ',
+          inChargeContact: undefined,
+        },
+      ],
+      preProgramNeeds: ['ማይክሮፎን'],
+    });
+    assert(dailySheetPayload.presenterContact === '@deacon_michael', 'Daily sheet presenterContact must be preserved');
+    assert(dailySheetPayload.slots[0].inChargeContact === '+251911223344', 'Slot inChargeContact must be preserved');
+    assert(!('inChargeContact' in dailySheetPayload.slots[1]), 'Undefined slot inChargeContact must be stripped');
+
+    const syncedDaily = getSyncedPlansForDivision({
+      scope: 'DAILY',
+      division: 'youth',
+      dailyPlanSheets: [dailySheetPayload as any],
+      annualPlan: [],
+      ehudPlans: [],
+    });
+    assert(syncedDaily[0]?.presenterOrLeader === 'ዲ/ን ሚካኤል', 'Synced daily presenter name must propagate');
+    assert(syncedDaily[0]?.presenterContact === '@deacon_michael', 'Synced daily presenterContact must propagate');
+
+    const syncedWeekly = getSyncedPlansForDivision({
+      scope: 'WEEKLY',
+      division: 'youth',
+      dailyPlanSheets: [],
+      annualPlan: [],
+      ehudPlans: [planPayload as any],
+    });
+    assert(syncedWeekly[0]?.presenterOrLeader === 'ዲ/ን ሚካኤል', 'Synced weekly presenter name must propagate');
+    assert(syncedWeekly[0]?.presenterContact === '+251911223344', 'Synced weekly presenterContact must propagate');
 
     const followUpPayload = sanitizeFirestorePayload({
       id: 'efollow_test_1',
@@ -366,8 +435,141 @@ async function runTests() {
     console.error('❌ TEST 11 FAILED:', err.message);
   }
 
-  console.log(`\n--- Test Suite Summary: ${passedCount}/11 Tests Passed Successfully ---\n`);
-  if (passedCount !== 11) process.exit(1);
+  // TEST 12: Sole Master Operator Identity (goferconstruction@gmail.com ONLY)
+  try {
+    assert(PRIMARY_FIREBASE_ADMIN_EMAIL === 'goferconstruction@gmail.com', 'Primary Master Operator must be goferconstruction@gmail.com');
+    assert(SUPER_ADMIN_EMAILS.length === 1 && SUPER_ADMIN_EMAILS[0] === 'goferconstruction@gmail.com', 'SUPER_ADMIN_EMAILS must contain only goferconstruction@gmail.com');
+    assert(isMasterOperatorEmail('goferconstruction@gmail.com') === true, 'Exact goferconstruction@gmail.com must pass');
+    assert(isMasterOperatorEmail('  GoferConstruction@Gmail.com ') === true, 'Case/whitespace normalized goferconstruction@gmail.com must pass');
+    assert(isMasterOperatorEmail('yaredcotm@gmail.com') === false, 'Non-configured email must NOT be Master Operator');
+    assert(isMasterOperatorEmail('finalizedyosef@gmail.com') === false, 'Legacy email must NOT be Master Operator');
+    assert(isMasterOperatorEmail('admin@teklesawiros.org') === false, 'Generic admin email must NOT be Master Operator');
+    assert(isMasterOperatorEmail('') === false && isMasterOperatorEmail(null) === false, 'Empty/null email must NOT be Master Operator');
+
+    console.log('✅ TEST 12 PASSED: Sole Master Operator check strictly restricts global access to goferconstruction@gmail.com');
+    passedCount++;
+  } catch (err: any) {
+    console.error('❌ TEST 12 FAILED:', err.message);
+  }
+
+  // TEST 13: Single-Department Lock Invariant & Auth Error Handling
+  try {
+    // Before choosing any department, non-master can choose one initial department
+    assert(
+      isSingleDepartmentLocked({
+        isMasterOperator: false,
+        assignedDepartmentId: null,
+        targetDepartmentId: 'kinetibeb',
+      }) === false,
+      'Unassigned user can pick initial department'
+    );
+
+    // Once assigned/locked to kinetibeb, all other departments are locked
+    assert(
+      isSingleDepartmentLocked({
+        isMasterOperator: false,
+        assignedDepartmentId: 'kinetibeb',
+        targetDepartmentId: 'kinetibeb',
+      }) === false,
+      'Assigned user can open their own department'
+    );
+    assert(
+      isSingleDepartmentLocked({
+        isMasterOperator: false,
+        assignedDepartmentId: 'kinetibeb',
+        targetDepartmentId: 'ehud_merha_gibir',
+      }) === true,
+      'Assigned user must be locked out of other departments'
+    );
+    assert(
+      isSingleDepartmentLocked({
+        isMasterOperator: false,
+        assignedDepartmentId: 'ehud_merha_gibir',
+        targetDepartmentId: 'mezmur',
+      }) === true,
+      'Ehud user must be locked out of all other departments'
+    );
+
+    // Master Operator (goferconstruction@gmail.com) sees all departments unlocked
+    assert(
+      isSingleDepartmentLocked({
+        isMasterOperator: true,
+        assignedDepartmentId: 'kinetibeb',
+        targetDepartmentId: 'ehud_merha_gibir',
+      }) === false,
+      'Master Operator must never be locked out of any department'
+    );
+
+    const domainErrMsg = getAuthErrorMessageAmharic({ code: 'auth/unauthorized-domain' });
+    assert(
+      domainErrMsg.includes('auth/unauthorized-domain') && domainErrMsg.includes('Authorized domains'),
+      'auth/unauthorized-domain must return clear guidance instead of generic message'
+    );
+
+    console.log('✅ TEST 13 PASSED: Non-master users are strictly locked to a single department and auth errors surface clearly');
+    passedCount++;
+  } catch (err: any) {
+    console.error('❌ TEST 13 FAILED:', err.message);
+  }
+
+  // TEST 14: Daily Timetable Productivity Helpers (Chain, Duration Adjust, Rebalance, Recommend)
+  try {
+    const sampleSlots = [
+      { id: 's1', timeRange: '2:00 - 2:20', slotTitle: 'ጸሎት', inCharge: 'መሪ 1', executionStatus: 'PENDING' as const },
+      { id: 's2', timeRange: '2:15 - 2:30', slotTitle: 'መዝሙር', inCharge: 'መሪ 2', executionStatus: 'PENDING' as const }, // overlaps s1
+      { id: 's3', timeRange: '3:00 - 3:10', slotTitle: 'ትምህርት', inCharge: 'መሪ 3', executionStatus: 'PENDING' as const }, // gap before s3
+    ];
+
+    // 1. autoChainDailySlots removes overlaps and internal gaps while preserving durations (20, 15, 10)
+    const chained = autoChainDailySlots(sampleSlots, 'ከ 2:00 - 4:00 ሰዓት');
+    const chainedAnalysis = analyzeDailySlotTimes(chained, 'ከ 2:00 - 4:00 ሰዓት');
+    assert(chainedAnalysis.hasAnyOverlap === false, 'autoChainDailySlots must eliminate all overlaps');
+    assert(chainedAnalysis.overlapZones.length === 0, 'autoChainDailySlots must have zero overlapZones');
+    assert(
+      chainedAnalysis.bySlotId['s1'].endMin === chainedAnalysis.bySlotId['s2'].startMin &&
+        chainedAnalysis.bySlotId['s2'].endMin === chainedAnalysis.bySlotId['s3'].startMin,
+      'autoChainDailySlots must eliminate internal gaps between consecutive slots'
+    );
+    assert(chainedAnalysis.coveredUniqueMin === 45, `Expected 45m covered, got ${chainedAnalysis.coveredUniqueMin}`);
+
+    // 2. adjustSlotDuration(+10) on s1 cascades cleanly without overlap, and -50 clamps to 5 min min
+    const extended = adjustSlotDuration(chained, 's1', 10, 'ከ 2:00 - 4:00 ሰዓት', true);
+    const extendedAnalysis = analyzeDailySlotTimes(extended, 'ከ 2:00 - 4:00 ሰዓት');
+    assert(extendedAnalysis.hasAnyOverlap === false, 'adjustSlotDuration cascade must stay overlap-free');
+    assert(extendedAnalysis.bySlotId['s1'].durationMin === 30, 's1 duration should increase from 20m to 30m');
+
+    const clamped = adjustSlotDuration(chained, 's3', -50, 'ከ 2:00 - 4:00 ሰዓት', true);
+    const clampedAnalysis = analyzeDailySlotTimes(clamped, 'ከ 2:00 - 4:00 ሰዓት');
+    assert(clampedAnalysis.bySlotId['s3'].durationMin === 5, 'adjustSlotDuration must clamp to 5 min minimum');
+
+    // 3. rebalanceSlotsToFitWindow scales slots proportionally to fill full 120m window cleanly
+    const rebalanced = rebalanceSlotsToFitWindow(chained, 'ከ 2:00 - 4:00 ሰዓት');
+    const rebalancedAnalysis = analyzeDailySlotTimes(rebalanced, 'ከ 2:00 - 4:00 ሰዓት');
+    assert(rebalancedAnalysis.hasAnyOverlap === false, 'rebalanceSlotsToFitWindow must stay overlap-free');
+    assert(
+      rebalancedAnalysis.analyzedSlots.every((s) => !s.outOfProgramBounds),
+      'rebalanceSlotsToFitWindow must fit within window bounds'
+    );
+    assert(rebalancedAnalysis.coveredUniqueMin === 120, `Rebalanced window should cover 120m, got ${rebalancedAnalysis.coveredUniqueMin}`);
+
+    // 4. getNextRecommendedSlotRange picks fitting open gap first, or appends at maxEnd
+    const gappedSlots = [
+      { id: 'g1', timeRange: '2:00 - 2:15', slotTitle: 'A', inCharge: '', executionStatus: 'PENDING' as const },
+      { id: 'g2', timeRange: '2:35 - 2:55', slotTitle: 'B', inCharge: '', executionStatus: 'PENDING' as const },
+    ];
+    const recGap = getNextRecommendedSlotRange(gappedSlots, 15, 'ከ 2:00 - 4:00 ሰዓት');
+    assert(recGap === '2:15–2:30', `Expected fitting gap 2:15–2:30, got ${recGap}`);
+    const recAppend = getNextRecommendedSlotRange(gappedSlots, 30, 'ከ 2:00 - 4:00 ሰዓት');
+    assert(recAppend === '2:55–3:25', `Expected append 2:55–3:25 when gap too small, got ${recAppend}`);
+
+    console.log('✅ TEST 14 PASSED: Daily timetable auto-chain, duration adjust, window rebalance, and slot recommendation work accurately');
+    passedCount++;
+  } catch (err: any) {
+    console.error('❌ TEST 14 FAILED:', err.message);
+  }
+
+  console.log(`\n--- Test Suite Summary: ${passedCount}/14 Tests Passed Successfully ---\n`);
+  if (passedCount !== 14) process.exit(1);
 }
 
 runTests().catch((err) => {

@@ -102,6 +102,7 @@ export const AppContent: React.FC = () => {
   });
 
   const [activeTab, setActiveTab] = useState<BottomNavTab>('HOME');
+  const [focusedEhudSheetId, setFocusedEhudSheetId] = useState<string | null>(null);
   const [deepScreen, setDeepScreen] = useState<DeepScreen>({ type: 'none' });
   const [showChurchInfo, setShowChurchInfo] = useState<boolean>(false);
   const [showDepartmentsModal, setShowDepartmentsModal] = useState<boolean>(false);
@@ -414,11 +415,29 @@ export const AppContent: React.FC = () => {
 
               {activeTab === 'EVENTS' && <EventsScreen />}
 
-              {activeTab === 'EHUD_PLANNING' && <EhudPlanningScreen />}
+              {activeTab === 'EHUD_PLANNING' && (
+                <EhudPlanningScreen
+                  focusedSheetId={focusedEhudSheetId}
+                  onFocusSheetChange={setFocusedEhudSheetId}
+                  onNavigateToTab={handleTabSelected}
+                />
+              )}
 
-              {activeTab === 'EHUD_FOLLOWING' && <EhudFollowingScreen />}
+              {activeTab === 'EHUD_FOLLOWING' && (
+                <EhudFollowingScreen
+                  focusedSheetId={focusedEhudSheetId}
+                  onFocusSheetChange={setFocusedEhudSheetId}
+                  onNavigateToTab={handleTabSelected}
+                />
+              )}
 
-              {activeTab === 'EHUD_RATING' && <EhudProgramRatingScreen />}
+              {activeTab === 'EHUD_RATING' && (
+                <EhudProgramRatingScreen
+                  focusedSheetId={focusedEhudSheetId}
+                  onFocusSheetChange={setFocusedEhudSheetId}
+                  onNavigateToTab={handleTabSelected}
+                />
+              )}
 
               {activeTab === 'PROFILE' && (
                 <ProfileScreen

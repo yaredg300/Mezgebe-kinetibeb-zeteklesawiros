@@ -15,8 +15,25 @@ export function getCanonicalMembershipId(userId: string, departmentId: string): 
   return `${userId}_${departmentId}`;
 }
 
+function sanitizeArrayValue(items: any[]): any[] {
+  const sanitized: any[] = [];
+  for (const item of items) {
+    if (item === undefined) {
+      continue;
+    }
+    if (Array.isArray(item)) {
+      sanitized.push(sanitizeArrayValue(item));
+    } else if (item !== null && typeof item === 'object' && !(item instanceof Date)) {
+      sanitized.push(sanitizeFirestorePayload(item));
+    } else {
+      sanitized.push(item);
+    }
+  }
+  return sanitized;
+}
+
 /**
- * Recursively removes all `undefined` values from an object,
+ * Recursively removes all `undefined` values from an object and any nested arrays/objects,
  * ensuring Firestore writes never fail due to unsupported undefined values.
  */
 export function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T): Partial<T> {
@@ -25,7 +42,9 @@ export function sanitizeFirestorePayload<T extends Record<string, any>>(obj: T):
     if (value === undefined) {
       continue;
     }
-    if (value !== null && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
+    if (Array.isArray(value)) {
+      result[key] = sanitizeArrayValue(value);
+    } else if (value !== null && typeof value === 'object' && !(value instanceof Date)) {
       result[key] = sanitizeFirestorePayload(value);
     } else {
       result[key] = value;

@@ -645,6 +645,11 @@
           "description": "Main teacher or preacher",
           "maxLength": 200
         },
+        "presenterContact": {
+          "type": "string",
+          "description": "Phone number or contact handle of the program presenter",
+          "maxLength": 100
+        },
         "timeAmharic": {
           "type": "string",
           "description": "Program hours",
@@ -687,6 +692,7 @@
         "targetDateAmharic": { "type": "string", "maxLength": 100 },
         "squadName": { "type": "string", "maxLength": 150 },
         "presenterName": { "type": "string", "maxLength": 150 },
+        "presenterContact": { "type": "string", "maxLength": 100 },
         "scriptureRef": { "type": "string", "maxLength": 150 },
         "goal": { "type": "string", "maxLength": 1500 },
         "resourcesNeeded": { "type": "array" },

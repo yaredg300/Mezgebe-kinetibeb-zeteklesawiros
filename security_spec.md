@@ -2,7 +2,7 @@
 
 ## 1. Data Invariants
 1. **User Identity Isolation**: A user cannot modify another user's profile or inject another user's UID as `writerId` on `works`.
-2. **Reviewer & Admin Tiering**: Only authorized Reviewers or Admins (and specifically the bootstrapped admin `yaredcotm@gmail.com`) can transition a work's status to `APPROVED` or `REVISION_REQUESTED` or edit official church roster members.
+2. **Reviewer & Admin Tiering**: Only authorized Reviewers or Admins (and specifically the bootstrapped admin `goferconstruction@gmail.com`) can transition a work's status to `APPROVED` or `REVISION_REQUESTED` or edit official church roster members.
 3. **Public Read of Approved Archives**: Approved works, active calendar events, and member roster are publicly readable to preserve Sunday school culture and literature for all faithful.
 4. **Creator Integrity**: Authors can create works under review and edit draft works they own. Once submitted, critical fields cannot be tampered with by third parties.
 5. **Path ID & Payload Hardening**: All collection IDs must conform to `^[a-zA-Z0-9_\-]+$` with bounded size limits (<= 128 chars).

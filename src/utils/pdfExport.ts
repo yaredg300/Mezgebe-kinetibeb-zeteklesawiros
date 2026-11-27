@@ -302,7 +302,11 @@ export const downloadDailyPlanPdf = (sheet: SundayDailyPlanSheet): string => {
   doc.setFontSize(10);
   doc.text(`Leader: ${sheet.leader}`, margin, y);
   y += 5.5;
-  doc.text(`Teacher / Presenter: ${sheet.presenterOrTeacher}`, margin, y);
+  doc.text(
+    `Teacher / Presenter: ${sheet.presenterOrTeacher}${sheet.presenterContact ? ` (${sheet.presenterContact})` : ''}`,
+    margin,
+    y
+  );
   y += 5.5;
   const purposeLines = doc.splitTextToSize(`Purpose: ${sheet.purpose}`, pageWidth - margin * 2);
   doc.text(purposeLines, margin, y);
@@ -324,7 +328,8 @@ export const downloadDailyPlanPdf = (sheet: SundayDailyPlanSheet): string => {
       doc.addPage();
       y = margin;
     }
-    const line = `${slot.timeRange}  |  ${slot.slotTitle}${slot.inCharge ? `  (${slot.inCharge})` : ''}`;
+    const contactSuffix = slot.inChargeContact ? ` - ${slot.inChargeContact}` : '';
+    const line = `${slot.timeRange}  |  ${slot.slotTitle}${slot.inCharge ? `  (${slot.inCharge}${contactSuffix})` : ''}`;
     const wrapped = doc.splitTextToSize(line, pageWidth - margin * 2);
     doc.text(wrapped, margin, y);
     y += wrapped.length * 5 + 2;
@@ -398,7 +403,7 @@ export const printDailyPlanSheet = (sheet: SundayDailyPlanSheet) => {
       <tr>
         <td style="font-family: monospace; font-weight: bold; white-space: nowrap;">${escapeHtml(slot.timeRange)}</td>
         <td><strong>${escapeHtml(slot.slotTitle)}</strong>${slot.notes ? `<div style="font-size: 11px; color: #475569; margin-top: 2px;">${escapeHtml(slot.notes)}</div>` : ''}</td>
-        <td>${escapeHtml(slot.inCharge || '—')}</td>
+        <td>${escapeHtml(slot.inCharge || '—')}${slot.inChargeContact ? `<div style="font-size: 11px; color: #0C4A9E; margin-top: 2px; font-family: monospace;">${escapeHtml(slot.inChargeContact)}</div>` : ''}</td>
       </tr>`
     )
     .join('');
@@ -438,7 +443,7 @@ export const printDailyPlanSheet = (sheet: SundayDailyPlanSheet) => {
       </div>
       <div class="meta">
         <div><strong>የዕለቱ መሪ / ተረኛ ምድብ፦</strong> ${escapeHtml(sheet.leader)}</div>
-        <div><strong>ዋና መምህር / አቅራቢ፦</strong> ${escapeHtml(sheet.presenterOrTeacher)}</div>
+        <div><strong>ዋና መምህር / አቅራቢ፦</strong> ${escapeHtml(sheet.presenterOrTeacher)}${sheet.presenterContact ? ` <span style="font-family: monospace; color: #0C4A9E;">(${escapeHtml(sheet.presenterContact)})</span>` : ''}</div>
         <div style="grid-column: 1 / -1;"><strong>መንፈሳዊ ዓላማ፦</strong> ${escapeHtml(sheet.purpose)}</div>
       </div>
       <table>

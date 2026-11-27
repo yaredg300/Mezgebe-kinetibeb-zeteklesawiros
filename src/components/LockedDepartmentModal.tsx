@@ -1,6 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Lock, X, ArrowRight, Crown } from 'lucide-react';
 import { useArchive } from '../context/ArchiveContext';
+import { AuthErrorAlert } from './AuthErrorAlert';
+import {
+  PRIMARY_FIREBASE_ADMIN_EMAIL,
+  getAuthErrorMessageAmharic,
+  isMasterOperatorEmail,
+} from '../firebase/config';
 import { DepartmentInfo, SundaySchoolDepartment } from '../types';
 
 interface LockedDepartmentModalProps {
@@ -21,9 +27,34 @@ export const LockedDepartmentModal: React.FC<LockedDepartmentModalProps> = ({
     setActiveDepartment,
   } = useArchive();
 
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [isSigningIn, setIsSigningIn] = useState(false);
+
   if (!department) return null;
 
   const assignedDept = departmentsList.find((d) => d.id === assignedDepartmentId);
+
+  const handleMasterSignIn = async () => {
+    setLoginError(null);
+    setIsSigningIn(true);
+    try {
+      const user = await loginAsMasterOperator();
+      if (user) {
+        if (isMasterOperatorEmail(user.email)) {
+          onClose();
+        } else {
+          setLoginError(
+            `የገቡት በ«${user.email}» ነው። ሁሉንም ክፍሎች መክፈት የሚችለው ዋና አስተባባሪ (${PRIMARY_FIREBASE_ADMIN_EMAIL}) ብቻ ነው።`
+          );
+        }
+      }
+    } catch (err: any) {
+      const msg = getAuthErrorMessageAmharic(err);
+      if (msg) setLoginError(msg);
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
@@ -59,9 +90,15 @@ export const LockedDepartmentModal: React.FC<LockedDepartmentModalProps> = ({
             </p>
           )}
           <p className="text-slate-600 dark:text-slate-400">
-            ሁሉንም ክፍሎች የመክፈትና የማስተዳደር ሙሉ ፈቃድ ያለው <strong>ዋና አስተባባሪ (Master Operator: goferconstruction@gmail.com)</strong> ብቻ ነው።
+            ሁሉንም ክፍሎች የመክፈትና የማስተዳደር ሙሉ ፈቃድ ያለው <strong>ዋና አስተባባሪ (Master Operator: {PRIMARY_FIREBASE_ADMIN_EMAIL})</strong> ብቻ ነው።
           </p>
         </div>
+
+        <AuthErrorAlert
+          message={loginError}
+          onDismiss={() => setLoginError(null)}
+          className="mt-3"
+        />
 
         <div className="mt-5 flex flex-col gap-2">
           {assignedDepartmentId && (
@@ -83,14 +120,16 @@ export const LockedDepartmentModal: React.FC<LockedDepartmentModalProps> = ({
 
           <button
             type="button"
-            onClick={() => {
-              loginAsMasterOperator();
-              onClose();
-            }}
-            className="w-full py-2 px-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-700 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+            disabled={isSigningIn}
+            onClick={handleMasterSignIn}
+            className="w-full py-2 px-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-700 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
           >
             <Crown className="w-3.5 h-3.5 text-[#B88500]" />
-            <span>እንደ ዋና አስተባባሪ ሁሉንም ክፈት (Master Operator)</span>
+            <span>
+              {isSigningIn
+                ? 'በመገናኘት ላይ...'
+                : `እንደ ዋና አስተባባሪ ሁሉንም ክፈት (${PRIMARY_FIREBASE_ADMIN_EMAIL})`}
+            </span>
           </button>
         </div>
       </div>

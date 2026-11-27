@@ -5,6 +5,8 @@ import { SundaySchoolDivision, DIVISIONS, SundaySchoolDepartment } from '../type
 import { AppHeader } from '../components/AppHeader';
 import { ManuscriptBox } from '../components/Ornaments';
 import { getDepartmentCategories } from '../data/departmentCategories';
+import { getAuthErrorMessageAmharic } from '../firebase/config';
+import { AuthErrorAlert } from '../components/AuthErrorAlert';
 
 interface WorkPreset {
   label: string;
@@ -153,6 +155,7 @@ export const CreateWorkScreen: React.FC<{
   const activePresets = isEhudMode ? EHUD_SAMPLE_PRESETS : KINETIBEB_SAMPLE_PRESETS;
 
   const [content, setContent] = useState(existingWork?.content || '');
+  const [authError, setAuthError] = useState<string | null>(null);
   const [excerpt, setExcerpt] = useState(existingWork?.excerpt || '');
   const [tagText, setTagText] = useState(
     existingWork?.tags?.join(', ') ||
@@ -288,10 +291,23 @@ export const CreateWorkScreen: React.FC<{
                 <p className="text-xs text-slate-700 dark:text-slate-300 mt-1 leading-relaxed">
                   ሰነዶችዎ በቤተክርስቲያኑ ቋሚ መዝገብና በ Google Cloud Storage በደህንነት እንዲቀመጡ እባክዎ መጀመሪያ ይግቡ።
                 </p>
+                <AuthErrorAlert
+                  message={authError}
+                  onDismiss={() => setAuthError(null)}
+                  className="mt-2"
+                />
                 <div className="flex flex-wrap items-center gap-2.5 mt-3">
                   <button
                     type="button"
-                    onClick={signInWithGoogle}
+                    onClick={async () => {
+                      setAuthError(null);
+                      try {
+                        await signInWithGoogle();
+                      } catch (err: any) {
+                        const msg = getAuthErrorMessageAmharic(err);
+                        if (msg) setAuthError(msg);
+                      }
+                    }}
                     className="px-3.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 text-xs font-bold border border-slate-300 dark:border-slate-700 shadow-xs flex items-center gap-1.5 hover:bg-slate-50 transition-colors"
                   >
                     በ Google ግባ
