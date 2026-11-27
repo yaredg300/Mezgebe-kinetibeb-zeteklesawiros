@@ -985,13 +985,30 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
         </button>
 
         {firebaseUser ? (
-          <button
-            onClick={logout}
-            className="text-xs font-medium text-[#8B0000] hover:underline flex items-center gap-1.5 py-2 px-3 cursor-pointer"
-          >
-            <LogOut className="w-4 h-4" />
-            ከአካውንት ውጣ (Sign Out)
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await signInWithGoogle();
+                } catch {
+                  // Handled safely
+                }
+              }}
+              className="text-xs font-bold text-[#0C4A9E] dark:text-[#7FAFFF] hover:underline flex items-center gap-1.5 py-2 px-3 cursor-pointer"
+            >
+              <User className="w-4 h-4" />
+              አካውንት ቀይር (በ Google ግባ)
+            </button>
+            <button
+              type="button"
+              onClick={logout}
+              className="text-xs font-medium text-[#8B0000] hover:underline flex items-center gap-1.5 py-2 px-3 cursor-pointer"
+            >
+              <LogOut className="w-4 h-4" />
+              ከአካውንት ውጣ (Sign Out)
+            </button>
+          </div>
         ) : (
           <div className="flex items-center gap-2">
             <button

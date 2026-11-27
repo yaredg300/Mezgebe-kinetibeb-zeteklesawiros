@@ -28,6 +28,13 @@ import {
   EhudDepartmentPosition,
   EHUD_DEPARTMENT_POSITIONS,
   DepartmentInvite,
+  EhudProgramPlan,
+  EhudPlanScope,
+  EhudPlanStatus,
+  EhudFollowUpRecord,
+  EhudPunctualityStatus,
+  EhudFollowUpStatus,
+  EhudProgramRating,
 } from '../types';
 import {
   SUNDAY_PLAN_PDF_PACKAGES,
@@ -59,6 +66,7 @@ import {
   googleDriveProvider,
   getCachedGoogleToken,
   setCachedGoogleToken,
+  SUPER_ADMIN_EMAILS,
 } from '../firebase/config';
 import {
   collection,
@@ -924,6 +932,54 @@ interface ArchiveContextType {
   createDailyPlanSheet: (sheet: SundayDailyPlanSheet) => Promise<SundayDailyPlanSheet>;
   toggleDailyPreProgramItem: (sheetId: string, needItem: string) => Promise<void>;
   deleteDailyPlanSheet: (sheetId: string) => Promise<void>;
+  ehudPlans: EhudProgramPlan[];
+  createEhudPlan: (data: {
+    division: SundaySchoolDivision;
+    planScope?: EhudPlanScope;
+    title: string;
+    monthAmharic: string;
+    targetDateAmharic: string;
+    squadName?: string;
+    presenterName?: string;
+    scriptureRef?: string;
+    goal: string;
+    resourcesNeeded: string[];
+    status: EhudPlanStatus;
+  }) => Promise<EhudProgramPlan>;
+  updateEhudPlan: (planId: string, updates: Partial<EhudProgramPlan>) => Promise<void>;
+  deleteEhudPlan: (planId: string) => Promise<void>;
+  ehudFollowUps: EhudFollowUpRecord[];
+  createEhudFollowUp: (data: {
+    division: SundaySchoolDivision;
+    planScope?: EhudPlanScope;
+    programSheetId: string;
+    programTitle: string;
+    programDateAmharic: string;
+    attendanceCount: number;
+    punctualityStatus: EhudPunctualityStatus;
+    readinessScore: number;
+    followUpStatus: EhudFollowUpStatus;
+    observations: string;
+    actionItems: string;
+  }) => Promise<EhudFollowUpRecord>;
+  updateEhudFollowUp: (followupId: string, updates: Partial<EhudFollowUpRecord>) => Promise<void>;
+  deleteEhudFollowUp: (followupId: string) => Promise<void>;
+  ehudRatings: EhudProgramRating[];
+  submitEhudProgramRating: (data: {
+    division: SundaySchoolDivision;
+    planScope?: EhudPlanScope;
+    programSheetId: string;
+    programTitle: string;
+    programDateAmharic: string;
+    overallRating: number;
+    spiritualDepthRating: number;
+    timeManagementRating: number;
+    organizationRating: number;
+    engagementRating: number;
+    strengths?: string;
+    improvements?: string;
+  }) => Promise<EhudProgramRating>;
+  deleteEhudProgramRating: (ratingId: string) => Promise<void>;
   selectedDivision: SundaySchoolDivision;
   currentUser: UserProfile;
   firebaseUser: FirebaseUser | null;
@@ -1029,6 +1085,10 @@ interface ArchiveContextType {
   scheduleAssignments: ScheduleTaskAssignment[];
   departmentNotifications: DepartmentNotification[];
   isSuperAdmin: boolean;
+  isMasterOperator: boolean;
+  assignedDepartmentId: SundaySchoolDepartment | null;
+  isDepartmentLocked: (deptId: SundaySchoolDepartment) => boolean;
+  loginAsMasterOperator: () => Promise<void>;
   isDepartmentPortalLocked: boolean;
   userMemberships: DepartmentMembership[];
   approvedMemberships: DepartmentMembership[];
@@ -1300,6 +1360,557 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  // =========================================================================
+  // EHUD MERHA GIBIR: PLANNING, FOLLOWING & PROGRAM RATINGS
+  // =========================================================================
+  const INITIAL_EHUD_PLANS: EhudProgramPlan[] = [
+    {
+      id: 'eplan_hidar_youth_1',
+      departmentId: 'ehud_merha_gibir',
+      division: 'youth',
+      planScope: 'WEEKLY',
+      title: 'የኅዳር ወር ወጣቶች መንፈሳዊ ጉባኤና የጽናት ትምህርት',
+      monthAmharic: 'ኅዳር',
+      targetDateAmharic: 'ኅዳር 13 2019 ዓ.ም.',
+      squadName: 'ምድብ 02 (ደስታ)',
+      presenterName: 'ዲ/ን ሚካኤል ተስፋዬ',
+      scriptureRef: '1ኛ ቆሮ. 16:13',
+      goal: 'ወጣቶች በጾመ ነቢያት ዋዜማ በጸሎትና በቤተክርስቲያን ሕይወት እንዲጸኑ ማነሳሳት',
+      resourcesNeeded: ['ማይክሮፎንና ድምፅ ማጉያ', 'የመዝሙር ጥራዝ', 'የመገኘት መዝገብ'],
+      status: 'SCHEDULED',
+      createdBy: 'system_seed',
+      createdByName: 'የእሁድ መርሐ ግብር ክፍል',
+      createdAt: '2026-11-01T08:00:00.000Z',
+      updatedAt: '2026-11-01T08:00:00.000Z',
+    },
+    {
+      id: 'eplan_hidar_children_1',
+      departmentId: 'ehud_merha_gibir',
+      division: 'children',
+      planScope: 'WEEKLY',
+      title: 'የቅዱሳን ታሪክና የሕፃናት መዝሙር ልምምድ መርሐ ግብር',
+      monthAmharic: 'ኅዳር',
+      targetDateAmharic: 'ኅዳር 20 2019 ዓ.ም.',
+      squadName: 'ምድብ 1 መምህራን',
+      presenterName: 'መ/ርት ትዕግሥት አበበ',
+      scriptureRef: 'ማቴ. 19:14',
+      goal: 'ሕፃናት የቅዱሳንን ታሪክ በቀላል ተውኔትና መዝሙር እንዲማሩ ማድረግ',
+      resourcesNeeded: ['የሥዕል ካርዶች', 'የሕፃናት መዝሙር ደብተር'],
+      status: 'READY',
+      createdBy: 'system_seed',
+      createdByName: 'የእሁድ መርሐ ግብር ክፍል',
+      createdAt: '2026-11-02T08:00:00.000Z',
+      updatedAt: '2026-11-02T08:00:00.000Z',
+    },
+    {
+      id: 'eplan_hidar_int_1',
+      departmentId: 'ehud_merha_gibir',
+      division: 'intermediates',
+      planScope: 'WEEKLY',
+      title: 'የማዕከላውያን የመጽሐፍ ቅዱስ ጥናትና የጥያቄና መልስ ውድድር',
+      monthAmharic: 'ኅዳር',
+      targetDateAmharic: 'ኅዳር 27 2019 ዓ.ም.',
+      squadName: 'የጥበብ ምድብ',
+      presenterName: 'አቤል ዘውዱ',
+      scriptureRef: 'መዝ. 119:105',
+      goal: 'ማዕከላውያን የወንጌልን መሠረታዊ ትምህርት በውይይት እንዲያዳብሩ ማበረታታት',
+      resourcesNeeded: ['የጥያቄና መልስ ካርዶች', 'የውጤት ሰሌዳ'],
+      status: 'DRAFT',
+      createdBy: 'system_seed',
+      createdByName: 'የእሁድ መርሐ ግብር ክፍል',
+      createdAt: '2026-11-03T08:00:00.000Z',
+      updatedAt: '2026-11-03T08:00:00.000Z',
+    },
+  ];
+
+  const INITIAL_EHUD_FOLLOWUPS: EhudFollowUpRecord[] = [
+    {
+      id: 'efollow_hidar_6',
+      departmentId: 'ehud_merha_gibir',
+      division: 'youth',
+      planScope: 'DAILY',
+      programSheetId: 'yth_hidar_6',
+      programTitle: 'ኅዳር 6 — ተመየጢ (የዕለት መርሐ ግብር)',
+      programDateAmharic: 'ኅዳር 6 2019 ዓ.ም.',
+      attendanceCount: 248,
+      punctualityStatus: 'ON_TIME',
+      readinessScore: 92,
+      followUpStatus: 'RESOLVED',
+      observations: 'ድምፅ ማጉያና መምህራን በሰዓቱ ተገኝተው መርሐ ግብሩ በተሳካ ሁኔታ ተካሂዷል።',
+      actionItems: 'ለቀጣዩ እሁድ ተጨማሪ የመዝሙር ወረቀቶች እንዲታተሙ ተወስኗል።',
+      recordedBy: 'system_seed',
+      recordedByName: 'የክትትል ቡድን',
+      createdAt: '2026-11-10T10:30:00.000Z',
+      updatedAt: '2026-11-10T10:30:00.000Z',
+    },
+    {
+      id: 'efollow_weekly_hidar_13',
+      departmentId: 'ehud_merha_gibir',
+      division: 'youth',
+      planScope: 'WEEKLY',
+      programSheetId: 'yth_hid_13',
+      programTitle: 'አእላፋት መላእክት (ሳምንታዊ ዕቅድ)',
+      programDateAmharic: 'ኅዳር 13 2019 ዓ.ም.',
+      attendanceCount: 235,
+      punctualityStatus: 'ON_TIME',
+      readinessScore: 88,
+      followUpStatus: 'IN_PROGRESS',
+      observations: 'የምድብ 02 አዘጋጆች የምንባብና የመዝሙር ዝግጅት አጠናቅቀዋል።',
+      actionItems: 'የዕለት መርሐ ግብር ሉህ በመድረክ አስተባባሪ እንዲረጋገጥ ክትትል በመደረግ ላይ ነው።',
+      recordedBy: 'system_seed',
+      recordedByName: 'የክትትል ቡድን',
+      createdAt: '2026-11-14T10:00:00.000Z',
+      updatedAt: '2026-11-14T10:00:00.000Z',
+    },
+    {
+      id: 'efollow_yearly_yt_1_1_4',
+      departmentId: 'ehud_merha_gibir',
+      division: 'youth',
+      planScope: 'YEARLY',
+      programSheetId: 'yt_1_1_4',
+      programTitle: '1.1.4 — ሳምንታዊ የእሁድ መደበኛ መርሐ ግብር ማከናወን',
+      programDateAmharic: 'መስከረም – ጳጉሜን 2019 ዓ.ም.',
+      attendanceCount: 250,
+      punctualityStatus: 'ON_TIME',
+      readinessScore: 90,
+      followUpStatus: 'IN_PROGRESS',
+      observations: 'የመጀመሪያው ሩብ ዓመት የእሁድ ጉባኤያት በዋና ገጽ ዓመታዊ ሰሌዳ መሠረት እየተከናወኑ ነው።',
+      actionItems: 'የታኅሣሥና የጥር እሁዶች የዕለት ሉሆች ቀድመው እንዲጸድቁ ክትትል ይደረጋል።',
+      recordedBy: 'system_seed',
+      recordedByName: 'የእሁድ መርሐ ግብር አስተባባሪ',
+      createdAt: '2026-11-15T10:00:00.000Z',
+      updatedAt: '2026-11-15T10:00:00.000Z',
+    },
+  ];
+
+  const INITIAL_EHUD_RATINGS: EhudProgramRating[] = [
+    {
+      id: 'erating_seed_1',
+      departmentId: 'ehud_merha_gibir',
+      division: 'youth',
+      planScope: 'DAILY',
+      programSheetId: 'yth_hidar_6',
+      programTitle: 'ኅዳር 6 — ተመየጢ',
+      programDateAmharic: 'ኅዳር 6 2019 ዓ.ም.',
+      overallRating: 5,
+      spiritualDepthRating: 5,
+      timeManagementRating: 4,
+      organizationRating: 5,
+      engagementRating: 5,
+      strengths: 'ትምህርቱ ጥልቅና ከወቅቱ ጋር የተገናኘ ነበር፤ የመዝሙር ዝግጅቱም በጣም ጥሩ ነበር።',
+      improvements: 'የውይይት ክፍለ ጊዜው ትንሽ ቢራዘም ይመረጣል።',
+      raterId: 'system_seed',
+      raterName: 'ዲ/ን ዮናስ ብርሃኑ',
+      createdAt: '2026-11-10T12:00:00.000Z',
+      updatedAt: '2026-11-10T12:00:00.000Z',
+    },
+    {
+      id: 'erating_seed_weekly_1',
+      departmentId: 'ehud_merha_gibir',
+      division: 'youth',
+      planScope: 'WEEKLY',
+      programSheetId: 'yth_hid_13',
+      programTitle: 'አእላፋት መላእክት (ሳምንታዊ ዕቅድ)',
+      programDateAmharic: 'ኅዳር 13 2019 ዓ.ም.',
+      overallRating: 5,
+      spiritualDepthRating: 5,
+      timeManagementRating: 5,
+      organizationRating: 4,
+      engagementRating: 5,
+      strengths: 'የሳምንቱ ርዕስና የምድብ 02 ቅንጅት እጅግ አነቃቂ ነበር።',
+      improvements: 'የጥያቄ መድረክ 5 ደቂቃ ቢጨመርለት ጥሩ ነው።',
+      raterId: 'system_seed',
+      raterName: 'እኅት ቤተልሔም አሰፋ',
+      createdAt: '2026-11-14T12:00:00.000Z',
+      updatedAt: '2026-11-14T12:00:00.000Z',
+    },
+  ];
+
+  const [ehudPlans, setEhudPlans] = useState<EhudProgramPlan[]>(() => {
+    try {
+      const saved = localStorage.getItem('mezgebe_ehud_plans');
+      if (saved) {
+        const parsed = JSON.parse(saved) as EhudProgramPlan[];
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return INITIAL_EHUD_PLANS;
+  });
+
+  const [ehudFollowUps, setEhudFollowUps] = useState<EhudFollowUpRecord[]>(() => {
+    try {
+      const saved = localStorage.getItem('mezgebe_ehud_followups');
+      if (saved) {
+        const parsed = JSON.parse(saved) as EhudFollowUpRecord[];
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return INITIAL_EHUD_FOLLOWUPS;
+  });
+
+  const [ehudRatings, setEhudRatings] = useState<EhudProgramRating[]>(() => {
+    try {
+      const saved = localStorage.getItem('mezgebe_ehud_ratings');
+      if (saved) {
+        const parsed = JSON.parse(saved) as EhudProgramRating[];
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return INITIAL_EHUD_RATINGS;
+  });
+
+  const persistLocalEhudPlans = (plans: EhudProgramPlan[]) => {
+    try {
+      localStorage.setItem('mezgebe_ehud_plans', JSON.stringify(plans));
+    } catch {
+      // ignore
+    }
+  };
+
+  const persistLocalEhudFollowUps = (items: EhudFollowUpRecord[]) => {
+    try {
+      localStorage.setItem('mezgebe_ehud_followups', JSON.stringify(items));
+    } catch {
+      // ignore
+    }
+  };
+
+  const persistLocalEhudRatings = (items: EhudProgramRating[]) => {
+    try {
+      localStorage.setItem('mezgebe_ehud_ratings', JSON.stringify(items));
+    } catch {
+      // ignore
+    }
+  };
+
+  const createEhudPlan = async (data: {
+    division: SundaySchoolDivision;
+    planScope?: EhudPlanScope;
+    title: string;
+    monthAmharic: string;
+    targetDateAmharic: string;
+    squadName?: string;
+    presenterName?: string;
+    scriptureRef?: string;
+    goal: string;
+    resourcesNeeded: string[];
+    status: EhudPlanStatus;
+  }): Promise<EhudProgramPlan> => {
+    const nowIso = new Date().toISOString();
+    const uid = auth.currentUser?.uid || currentUser.id || 'u_default';
+    const newPlan = sanitizeFirestorePayload({
+      id: `eplan_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      departmentId: 'ehud_merha_gibir',
+      division: data.division,
+      planScope: data.planScope || 'WEEKLY',
+      title: data.title.trim().slice(0, 250),
+      monthAmharic: data.monthAmharic.trim().slice(0, 50) || 'ኅዳር',
+      targetDateAmharic: data.targetDateAmharic.trim().slice(0, 100),
+      squadName: data.squadName?.trim() ? data.squadName.trim().slice(0, 150) : undefined,
+      presenterName: data.presenterName?.trim() ? data.presenterName.trim().slice(0, 150) : undefined,
+      scriptureRef: data.scriptureRef?.trim() ? data.scriptureRef.trim().slice(0, 150) : undefined,
+      goal: data.goal.trim().slice(0, 1500),
+      resourcesNeeded: data.resourcesNeeded.map((r) => r.trim()).filter(Boolean).slice(0, 30),
+      status: data.status,
+      createdBy: uid,
+      createdByName: (currentUser.fullName || 'አስተባባሪ').slice(0, 150),
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    }) as EhudProgramPlan;
+
+    setEhudPlans((prev) => {
+      const next = [newPlan, ...prev];
+      persistLocalEhudPlans(next);
+      return next;
+    });
+
+    if (auth.currentUser) {
+      try {
+        await setDoc(doc(db, 'ehud_program_plans', newPlan.id), newPlan);
+      } catch (error: any) {
+        if (error?.code === 'permission-denied' || String(error?.message || '').includes('Missing or insufficient permissions')) {
+          console.warn('Ehud plan saved locally; cloud sync requires deployed firestore.rules and department approval.');
+          throw error;
+        }
+        handleFirestoreError(error, OperationType.CREATE, `ehud_program_plans/${newPlan.id}`);
+      }
+    }
+    return newPlan;
+  };
+
+  const updateEhudPlan = async (
+    planId: string,
+    updates: Partial<EhudProgramPlan>
+  ): Promise<void> => {
+    const existing = ehudPlans.find((p) => p.id === planId);
+    if (!existing) return;
+
+    const merged = sanitizeFirestorePayload({
+      ...existing,
+      ...updates,
+      id: existing.id,
+      departmentId: 'ehud_merha_gibir',
+      createdBy: existing.createdBy,
+      createdAt: existing.createdAt,
+      squadName:
+        updates.squadName !== undefined
+          ? updates.squadName.trim() || undefined
+          : existing.squadName,
+      presenterName:
+        updates.presenterName !== undefined
+          ? updates.presenterName.trim() || undefined
+          : existing.presenterName,
+      scriptureRef:
+        updates.scriptureRef !== undefined
+          ? updates.scriptureRef.trim() || undefined
+          : existing.scriptureRef,
+      updatedAt: new Date().toISOString(),
+    }) as EhudProgramPlan;
+
+    setEhudPlans((prev) => {
+      const next = prev.map((p) => (p.id === planId ? merged : p));
+      persistLocalEhudPlans(next);
+      return next;
+    });
+
+    if (auth.currentUser) {
+      try {
+        await setDoc(doc(db, 'ehud_program_plans', planId), merged);
+      } catch (error: any) {
+        if (error?.code === 'permission-denied' || String(error?.message || '').includes('Missing or insufficient permissions')) {
+          console.warn('Ehud plan update saved locally; cloud sync requires deployed firestore.rules and department approval.');
+          throw error;
+        }
+        handleFirestoreError(error, OperationType.UPDATE, `ehud_program_plans/${planId}`);
+      }
+    }
+  };
+
+  const deleteEhudPlan = async (planId: string): Promise<void> => {
+    setEhudPlans((prev) => {
+      const next = prev.filter((p) => p.id !== planId);
+      persistLocalEhudPlans(next);
+      return next;
+    });
+
+    if (auth.currentUser) {
+      try {
+        await deleteDoc(doc(db, 'ehud_program_plans', planId));
+      } catch (error: any) {
+        if (error?.code === 'permission-denied' || String(error?.message || '').includes('Missing or insufficient permissions')) {
+          console.warn('Ehud plan deleted locally; cloud sync requires deployed firestore.rules and department approval.');
+          throw error;
+        }
+        handleFirestoreError(error, OperationType.DELETE, `ehud_program_plans/${planId}`);
+      }
+    }
+  };
+
+  const createEhudFollowUp = async (data: {
+    division: SundaySchoolDivision;
+    planScope?: EhudPlanScope;
+    programSheetId: string;
+    programTitle: string;
+    programDateAmharic: string;
+    attendanceCount: number;
+    punctualityStatus: EhudPunctualityStatus;
+    readinessScore: number;
+    followUpStatus: EhudFollowUpStatus;
+    observations: string;
+    actionItems: string;
+  }): Promise<EhudFollowUpRecord> => {
+    const nowIso = new Date().toISOString();
+    const uid = auth.currentUser?.uid || currentUser.id || 'u_default';
+    const record = sanitizeFirestorePayload({
+      id: `efollow_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      departmentId: 'ehud_merha_gibir',
+      division: data.division,
+      planScope: data.planScope || 'DAILY',
+      programSheetId: data.programSheetId.trim().slice(0, 128),
+      programTitle: data.programTitle.trim().slice(0, 250),
+      programDateAmharic: data.programDateAmharic.trim().slice(0, 100),
+      attendanceCount: Math.max(0, Math.min(10000, Number(data.attendanceCount) || 0)),
+      punctualityStatus: data.punctualityStatus,
+      readinessScore: Math.max(0, Math.min(100, Number(data.readinessScore) || 0)),
+      followUpStatus: data.followUpStatus,
+      observations: data.observations.trim().slice(0, 2000),
+      actionItems: data.actionItems.trim().slice(0, 1500),
+      recordedBy: uid,
+      recordedByName: (currentUser.fullName || 'ተከታታይ').slice(0, 150),
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    }) as EhudFollowUpRecord;
+
+    setEhudFollowUps((prev) => {
+      const next = [record, ...prev];
+      persistLocalEhudFollowUps(next);
+      return next;
+    });
+
+    if (auth.currentUser) {
+      try {
+        await setDoc(doc(db, 'ehud_followups', record.id), record);
+      } catch (error: any) {
+        if (error?.code === 'permission-denied' || String(error?.message || '').includes('Missing or insufficient permissions')) {
+          console.warn('Ehud follow-up saved locally; cloud sync requires deployed firestore.rules and department approval.');
+          throw error;
+        }
+        handleFirestoreError(error, OperationType.CREATE, `ehud_followups/${record.id}`);
+      }
+    }
+    return record;
+  };
+
+  const updateEhudFollowUp = async (
+    followupId: string,
+    updates: Partial<EhudFollowUpRecord>
+  ): Promise<void> => {
+    const existing = ehudFollowUps.find((f) => f.id === followupId);
+    if (!existing) return;
+
+    const merged = sanitizeFirestorePayload({
+      ...existing,
+      ...updates,
+      id: existing.id,
+      departmentId: 'ehud_merha_gibir',
+      recordedBy: existing.recordedBy,
+      createdAt: existing.createdAt,
+      updatedAt: new Date().toISOString(),
+    }) as EhudFollowUpRecord;
+
+    setEhudFollowUps((prev) => {
+      const next = prev.map((f) => (f.id === followupId ? merged : f));
+      persistLocalEhudFollowUps(next);
+      return next;
+    });
+
+    if (auth.currentUser) {
+      try {
+        await setDoc(doc(db, 'ehud_followups', followupId), merged);
+      } catch (error: any) {
+        if (error?.code === 'permission-denied' || String(error?.message || '').includes('Missing or insufficient permissions')) {
+          console.warn('Ehud follow-up update saved locally; cloud sync requires deployed firestore.rules and department approval.');
+          throw error;
+        }
+        handleFirestoreError(error, OperationType.UPDATE, `ehud_followups/${followupId}`);
+      }
+    }
+  };
+
+  const deleteEhudFollowUp = async (followupId: string): Promise<void> => {
+    setEhudFollowUps((prev) => {
+      const next = prev.filter((f) => f.id !== followupId);
+      persistLocalEhudFollowUps(next);
+      return next;
+    });
+
+    if (auth.currentUser) {
+      try {
+        await deleteDoc(doc(db, 'ehud_followups', followupId));
+      } catch (error: any) {
+        if (error?.code === 'permission-denied' || String(error?.message || '').includes('Missing or insufficient permissions')) {
+          console.warn('Ehud follow-up deleted locally; cloud sync requires deployed firestore.rules and department approval.');
+          throw error;
+        }
+        handleFirestoreError(error, OperationType.DELETE, `ehud_followups/${followupId}`);
+      }
+    }
+  };
+
+  const submitEhudProgramRating = async (data: {
+    division: SundaySchoolDivision;
+    planScope?: EhudPlanScope;
+    programSheetId: string;
+    programTitle: string;
+    programDateAmharic: string;
+    overallRating: number;
+    spiritualDepthRating: number;
+    timeManagementRating: number;
+    organizationRating: number;
+    engagementRating: number;
+    strengths?: string;
+    improvements?: string;
+  }): Promise<EhudProgramRating> => {
+    const uid = auth.currentUser?.uid || currentUser.id || 'u_default';
+    const scope = data.planScope || 'DAILY';
+    const existingByUser = ehudRatings.find(
+      (r) =>
+        r.programSheetId === data.programSheetId &&
+        r.raterId === uid &&
+        (r.planScope || 'DAILY') === scope
+    );
+    const nowIso = new Date().toISOString();
+    const clampScore = (v: number) => Math.max(1, Math.min(5, Math.round(Number(v) || 5)));
+
+    const payload = sanitizeFirestorePayload({
+      id: existingByUser?.id || `erating_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      departmentId: 'ehud_merha_gibir',
+      division: data.division,
+      planScope: scope,
+      programSheetId: data.programSheetId.trim().slice(0, 128),
+      programTitle: data.programTitle.trim().slice(0, 250),
+      programDateAmharic: data.programDateAmharic.trim().slice(0, 100),
+      overallRating: clampScore(data.overallRating),
+      spiritualDepthRating: clampScore(data.spiritualDepthRating),
+      timeManagementRating: clampScore(data.timeManagementRating),
+      organizationRating: clampScore(data.organizationRating),
+      engagementRating: clampScore(data.engagementRating),
+      strengths: data.strengths?.trim() ? data.strengths.trim().slice(0, 1000) : undefined,
+      improvements: data.improvements?.trim() ? data.improvements.trim().slice(0, 1000) : undefined,
+      raterId: existingByUser?.raterId || uid,
+      raterName: existingByUser?.raterName || (currentUser.fullName || 'አባል').slice(0, 150),
+      createdAt: existingByUser?.createdAt || nowIso,
+      updatedAt: nowIso,
+    }) as EhudProgramRating;
+
+    setEhudRatings((prev) => {
+      const exists = prev.some((r) => r.id === payload.id);
+      const next = exists ? prev.map((r) => (r.id === payload.id ? payload : r)) : [payload, ...prev];
+      persistLocalEhudRatings(next);
+      return next;
+    });
+
+    if (auth.currentUser) {
+      try {
+        await setDoc(doc(db, 'ehud_program_ratings', payload.id), payload);
+      } catch (error: any) {
+        if (error?.code === 'permission-denied' || String(error?.message || '').includes('Missing or insufficient permissions')) {
+          console.warn('Ehud rating saved locally; cloud sync requires deployed firestore.rules.');
+          throw error;
+        }
+        handleFirestoreError(error, existingByUser ? OperationType.UPDATE : OperationType.CREATE, `ehud_program_ratings/${payload.id}`);
+      }
+    }
+
+    return payload;
+  };
+
+  const deleteEhudProgramRating = async (ratingId: string): Promise<void> => {
+    setEhudRatings((prev) => {
+      const next = prev.filter((r) => r.id !== ratingId);
+      persistLocalEhudRatings(next);
+      return next;
+    });
+
+    if (auth.currentUser) {
+      try {
+        await deleteDoc(doc(db, 'ehud_program_ratings', ratingId));
+      } catch (error: any) {
+        if (error?.code === 'permission-denied' || String(error?.message || '').includes('Missing or insufficient permissions')) {
+          console.warn('Ehud rating deleted locally; cloud sync requires deployed firestore.rules.');
+          throw error;
+        }
+        handleFirestoreError(error, OperationType.DELETE, `ehud_program_ratings/${ratingId}`);
+      }
+    }
+  };
+
   const [departmentsList, setDepartmentsList] = useState<DepartmentInfo[]>(() => {
     try {
       const savedCustom = localStorage.getItem('mezgebe_custom_departments');
@@ -1475,12 +2086,10 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
+        const normalizedEmail = user.email?.toLowerCase() || '';
         const isVerifiedMasterEmail = Boolean(
           user.emailVerified &&
-            (user.email === 'finalizedyosef@gmail.com' ||
-              user.email === 'goferconstruction@gmail.com' ||
-              user.email === 'yaredcotm@gmail.com' ||
-              user.email === 'admin@teklesawiros.org')
+            (SUPER_ADMIN_EMAILS as readonly string[]).includes(normalizedEmail)
         );
 
         let hasAdminDoc = false;
@@ -1617,10 +2226,9 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const isSuperAdmin = Boolean(
     firebaseUser &&
       ((firebaseUser.emailVerified &&
-        (firebaseUser.email === 'finalizedyosef@gmail.com' ||
-          firebaseUser.email === 'goferconstruction@gmail.com' ||
-          firebaseUser.email === 'yaredcotm@gmail.com' ||
-          firebaseUser.email === 'admin@teklesawiros.org')) ||
+        (SUPER_ADMIN_EMAILS as readonly string[]).includes(
+          firebaseUser.email?.toLowerCase() || ''
+        )) ||
         isAdminDocVerified)
   );
 
@@ -1774,6 +2382,26 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       !isSuperAdmin &&
       (!activeMembership || activeMembership.status !== 'APPROVED')
   );
+
+  const isMasterOperator = isSuperAdmin;
+  const assignedDepartmentId: SundaySchoolDepartment | null = isSuperAdmin
+    ? null
+    : ((approvedMemberships[0]?.departmentId ||
+        currentUser.departmentId ||
+        activeDepartment) as SundaySchoolDepartment) || null;
+
+  const isDepartmentLocked = (deptId: SundaySchoolDepartment): boolean => {
+    if (isSuperAdmin) return false;
+    if (userMemberships.some((m) => m.status === 'APPROVED' && m.departmentId === deptId)) {
+      return false;
+    }
+    if (approvedMemberships.length > 0) return true;
+    return activeDepartment !== deptId;
+  };
+
+  const loginAsMasterOperator = async (): Promise<void> => {
+    await signInWithGoogle();
+  };
 
   // Automatically route an approved non-super-admin user into their assigned department
   // if they currently sit on an unjoined default department (e.g., default 'kinetibeb')
@@ -1959,6 +2587,108 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     return () => unsubscribe();
   }, [isAuthReady]);
+
+  // 4c. Real-time Firestore synchronization for Ehud Merha Gibir Planning, Following & Ratings
+  useEffect(() => {
+    if (!isAuthReady || !firebaseUser) return;
+    if (activeDepartment !== 'ehud_merha_gibir' && !isSuperAdmin) return;
+
+    const plansQuery = query(
+      collection(db, 'ehud_program_plans'),
+      where('departmentId', '==', 'ehud_merha_gibir')
+    );
+    const unsubPlans = onSnapshot(
+      plansQuery,
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const fetched: EhudProgramPlan[] = [];
+          snapshot.forEach((docSnap) => {
+            fetched.push(docSnap.data() as EhudProgramPlan);
+          });
+          setEhudPlans((prev) => {
+            const map = new Map(prev.map((p) => [p.id, p]));
+            for (const item of fetched) {
+              map.set(item.id, item);
+            }
+            const merged = Array.from(map.values()).sort((a, b) =>
+              b.updatedAt.localeCompare(a.updatedAt)
+            );
+            persistLocalEhudPlans(merged);
+            return merged;
+          });
+        }
+      },
+      (error) => {
+        console.warn('Operating in local/cached mode for ehud_program_plans:', error?.message || error);
+      }
+    );
+
+    const followUpsQuery = query(
+      collection(db, 'ehud_followups'),
+      where('departmentId', '==', 'ehud_merha_gibir')
+    );
+    const unsubFollowUps = onSnapshot(
+      followUpsQuery,
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const fetched: EhudFollowUpRecord[] = [];
+          snapshot.forEach((docSnap) => {
+            fetched.push(docSnap.data() as EhudFollowUpRecord);
+          });
+          setEhudFollowUps((prev) => {
+            const map = new Map(prev.map((f) => [f.id, f]));
+            for (const item of fetched) {
+              map.set(item.id, item);
+            }
+            const merged = Array.from(map.values()).sort((a, b) =>
+              b.updatedAt.localeCompare(a.updatedAt)
+            );
+            persistLocalEhudFollowUps(merged);
+            return merged;
+          });
+        }
+      },
+      (error) => {
+        console.warn('Operating in local/cached mode for ehud_followups:', error?.message || error);
+      }
+    );
+
+    const ratingsQuery = query(
+      collection(db, 'ehud_program_ratings'),
+      where('departmentId', '==', 'ehud_merha_gibir')
+    );
+    const unsubRatings = onSnapshot(
+      ratingsQuery,
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const fetched: EhudProgramRating[] = [];
+          snapshot.forEach((docSnap) => {
+            fetched.push(docSnap.data() as EhudProgramRating);
+          });
+          setEhudRatings((prev) => {
+            const map = new Map(prev.map((r) => [r.id, r]));
+            for (const item of fetched) {
+              map.set(item.id, item);
+            }
+            const merged = Array.from(map.values()).sort((a, b) =>
+              b.updatedAt.localeCompare(a.updatedAt)
+            );
+            persistLocalEhudRatings(merged);
+            return merged;
+          });
+        }
+      },
+      (error) => {
+        console.warn('Operating in local/cached mode for ehud_program_ratings:', error?.message || error);
+      }
+    );
+
+    return () => {
+      unsubPlans();
+      unsubFollowUps();
+      unsubRatings();
+    };
+  }, [isAuthReady, firebaseUser, activeDepartment, isSuperAdmin]);
 
   // 5. Real-time Firestore synchronization for Department Memberships (Authenticated & Scoped)
   useEffect(() => {
@@ -2378,10 +3108,9 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
       const isMasterAdmin = Boolean(
         user.emailVerified &&
-          (user.email === 'finalizedyosef@gmail.com' ||
-            user.email === 'goferconstruction@gmail.com' ||
-            user.email === 'yaredcotm@gmail.com' ||
-            user.email === 'admin@teklesawiros.org')
+          (SUPER_ADMIN_EMAILS as readonly string[]).includes(
+            user.email?.toLowerCase() || ''
+          )
       );
 
       const targetDeptId = requestedDeptId || activeDepartment || 'kinetibeb';
@@ -3705,6 +4434,17 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
         createDailyPlanSheet,
         toggleDailyPreProgramItem,
         deleteDailyPlanSheet,
+        ehudPlans,
+        createEhudPlan,
+        updateEhudPlan,
+        deleteEhudPlan,
+        ehudFollowUps,
+        createEhudFollowUp,
+        updateEhudFollowUp,
+        deleteEhudFollowUp,
+        ehudRatings,
+        submitEhudProgramRating,
+        deleteEhudProgramRating,
         selectedDivision,
         currentUser,
         firebaseUser,
@@ -3745,6 +4485,10 @@ export const ArchiveProvider: React.FC<{ children: React.ReactNode }> = ({ child
         scheduleAssignments,
         departmentNotifications,
         isSuperAdmin,
+        isMasterOperator,
+        assignedDepartmentId,
+        isDepartmentLocked,
+        loginAsMasterOperator,
         isDepartmentPortalLocked,
         userMemberships,
         approvedMemberships,

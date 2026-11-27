@@ -1511,3 +1511,61 @@ export const MAEKELAWIYAN_TEACHER_SQUADS_2019: YouthOrganizerSquad[] = [
   },
 ];
 
+// =========================================================================
+// 7. YOUTH MONTHLY / WEEKLY ROADMAP HIGHLIGHTS (2019 ዓ.ም.) — Shared with ዋና ገጽ
+// =========================================================================
+export interface YouthMonthlyWeeklyGroup {
+  month: string;
+  monthShort: string;
+  motto: string;
+  sundays: {
+    day: number;
+    topic: string;
+    scripture: string;
+    squad: string;
+  }[];
+}
+
+export const YOUTH_MONTHLY_WEEKLY_HIGHLIGHTS_2019: YouthMonthlyWeeklyGroup[] = [
+  {
+    month: 'ኅዳር 2019 ዓ.ም.',
+    monthShort: 'ኅዳር',
+    motto: '«ተመየጢ» — የንስሐ፣ የጸሎትና የሐዋርያዊ ተልዕኮ ወር',
+    sundays: [
+      { day: 6, topic: 'ተመየጢ', scripture: 'መኃልይ 6:13', squad: 'ምድብ 01 (ፍቅር)' },
+      { day: 13, topic: 'አእላፋት መላእክት', scripture: 'ዕብራውያን 1:14', squad: 'ምድብ 02 (ደስታ)' },
+      { day: 20, topic: 'መልካም በግነት', scripture: 'ዮሐንስ 10:11-16', squad: 'ምድብ 03 (ሰላም)' },
+      { day: 21, topic: 'አውደ ምሕረት — እመቤታችን ጽዮን ማርያም', scripture: 'መዝሙር 131', squad: 'ምድብ 04 (ትዕግሥት)' },
+      { day: 27, topic: 'ላካቸው', scripture: 'ሉቃስ 10:1-12', squad: 'ምድብ 05 (ቸርነት)' },
+      { day: 30, topic: 'የኅዳር ወር የጸሎትና የምልጃ መርሐ ግብር', scripture: 'ያዕቆብ 5:16', squad: 'ምድብ 06 (በጎነት)' },
+    ],
+  },
+  {
+    month: 'ታኅሣሥ 2019 ዓ.ም.',
+    monthShort: 'ታኅሣሥ',
+    motto: '«ሕይወተ ወራዙት» — የወጣቶች ሕይወት ምክክር፣ ልደትና የጥምቀት ዝግጅት',
+    sundays: [
+      { day: 4, topic: 'ነገረ ቅዱሳን አበው ወአማታት — ቅድስት ሐና', scripture: 'ሉቃስ 1:46-55', squad: 'ምድብ 07 (እምነት)' },
+      { day: 11, topic: '«ሕይወተ ወራዙት ፩» (ለየብቻ አዳራሽ)', scripture: 'መክብብ 12:1', squad: 'ምድብ 08 (የውሃት)' },
+      { day: 18, topic: '«ሕይወተ ወራዙት ፩» ማጠቃለያ (በጋራ አዳራሽ)', scripture: '1 ቆሮ. 9:25', squad: 'ምድብ 09 (ራስን መግዛት)' },
+      { day: 21, topic: 'አውደ ምሕረት — «ምክረ አበው»', scripture: 'ምሳሌ 1:8', squad: 'ምድብ 10 (ሃይማኖት)' },
+      { day: 25, topic: 'ጥንተ ልደቱ ለክርስቶስ (ልዩ የገና ኪነጥበብ 30 ደቂቃ)', scripture: 'ዮሐንስ 1:14', squad: 'ምድብ 01 (ፍቅር)' },
+      { day: 30, topic: 'የጥምቀት በዓል ገቢ ማሰባሰቢያና አውደ ርዕይ', scripture: 'ዮሐንስ 1:29', squad: 'ምድብ 02 (ደስታ)' },
+    ],
+  },
+  {
+    month: 'ጥር 2019 ዓ.ም.',
+    monthShort: 'ጥር',
+    motto: '«ሰ/ት/ቤት በወጣቶች እይታ» — አንድነት፣ ታቦተ ጽዮንና ሰማዕትነት',
+    sundays: [
+      { day: 2, topic: 'የአንድነት መ/ግ — «ሰ/ት/ቤት በወጣቶች እይታ» ውይይት', scripture: 'ኤፌሶን 4:3', squad: 'ምድብ 03 (ሰላም)' },
+      { day: 9, topic: 'ዝክረ አበው — አቡነ እስትንፋሰ ክርስቶስ', scripture: 'ምሳሌ 10:7', squad: 'ምድብ 04 (ትዕግሥት)' },
+      { day: 16, topic: 'ታቦተ ጽዮን በኢትዮጵያ', scripture: 'ክብረ ነገሥት', squad: 'ምድብ 05 (ቸርነት)' },
+      { day: 21, topic: 'አውደ ምሕረት — ታቦተ ጽዮን', scripture: 'ማኅሌተ ጽጌ', squad: 'ምድብ 06 (በጎነት)' },
+      { day: 23, topic: 'ሰማዕትነት አያምልጣችሁ — ቅዱስ ጊዮርጊስ', scripture: '2 ጢሞ. 4:7', squad: 'ምድብ 07 (እምነት)' },
+      { day: 30, topic: 'የሩብ ዓመት ማጠቃለያ የጸሎትና የምስጋና መርሐ ግብር', scripture: 'ቆላስይስ 3:15', squad: 'ምድብ 08 (የውሃት)' },
+    ],
+  },
+];
+
+

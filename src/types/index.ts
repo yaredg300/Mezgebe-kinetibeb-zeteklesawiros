@@ -466,7 +466,15 @@ export const PARCHMENT_PALETTES: ParchmentPalette[] = [
   },
 ];
 
-export type BottomNavTab = 'HOME' | 'ARCHIVE' | 'SEARCH' | 'EVENTS' | 'PROFILE';
+export type BottomNavTab =
+  | 'HOME'
+  | 'ARCHIVE'
+  | 'SEARCH'
+  | 'EVENTS'
+  | 'PROFILE'
+  | 'EHUD_PLANNING'
+  | 'EHUD_FOLLOWING'
+  | 'EHUD_RATING';
 
 export interface SundayProgramPlanEntry {
   id: string;
@@ -485,12 +493,17 @@ export interface SundayProgramPlanEntry {
   isSpecialEvent?: boolean;
 }
 
+export type SundaySlotExecutionStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'DELAYED';
+
 export interface SundayTimetableSlot {
   id: string;
   timeRange: string;
   slotTitle: string;
   inCharge?: string;
   notes?: string;
+  executionStatus?: SundaySlotExecutionStatus;
+  actualTimeRange?: string;
+  followUpNote?: string;
 }
 
 export interface SundayDailyPlanSheet {
@@ -739,4 +752,76 @@ export interface DepartmentNotification {
   createdAt: string;
   isRead: boolean;
 }
+
+// =========================================================================
+// EHUD MERHA GIBIR: PLANNING, FOLLOWING & PROGRAM RATING MODELS
+// =========================================================================
+export type EhudPlanScope = 'DAILY' | 'WEEKLY' | 'YEARLY';
+export type EhudPlanStatus = 'DRAFT' | 'READY' | 'SCHEDULED';
+
+export interface EhudProgramPlan {
+  id: string;
+  departmentId: string;
+  division: SundaySchoolDivision;
+  planScope?: EhudPlanScope;
+  title: string;
+  monthAmharic: string;
+  targetDateAmharic: string;
+  squadName?: string;
+  presenterName?: string;
+  scriptureRef?: string;
+  goal: string;
+  resourcesNeeded: string[];
+  status: EhudPlanStatus;
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type EhudPunctualityStatus = 'ON_TIME' | 'SLIGHT_DELAY' | 'DELAYED';
+export type EhudFollowUpStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED';
+
+export interface EhudFollowUpRecord {
+  id: string;
+  departmentId: string;
+  division: SundaySchoolDivision;
+  planScope?: EhudPlanScope;
+  programSheetId: string;
+  programTitle: string;
+  programDateAmharic: string;
+  attendanceCount: number;
+  punctualityStatus: EhudPunctualityStatus;
+  readinessScore: number;
+  followUpStatus: EhudFollowUpStatus;
+  observations: string;
+  actionItems: string;
+  recordedBy: string;
+  recordedByName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EhudProgramRating {
+  id: string;
+  departmentId: string;
+  division: SundaySchoolDivision;
+  planScope?: EhudPlanScope;
+  programSheetId: string;
+  programTitle: string;
+  programDateAmharic: string;
+  overallRating: number;
+  spiritualDepthRating: number;
+  timeManagementRating: number;
+  organizationRating: number;
+  engagementRating: number;
+  strengths?: string;
+  improvements?: string;
+  raterId: string;
+  raterName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+
 

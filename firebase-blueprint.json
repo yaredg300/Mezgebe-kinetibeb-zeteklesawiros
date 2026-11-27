@@ -672,6 +672,82 @@
         }
       },
       "required": ["id", "division", "monthAmharic", "dayNumber", "dateAmharic", "mainTopic", "leader", "presenterOrTeacher", "timeAmharic", "purpose", "slots", "preProgramNeeds"]
+    },
+    "ehudProgramPlan": {
+      "title": "EhudProgramPlan",
+      "description": "Program planning record for Ehud Merha Gibir Sunday service preparation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "departmentId": { "type": "string", "maxLength": 64 },
+        "division": { "type": "string", "enum": ["children", "intermediates", "youth"] },
+        "planScope": { "type": "string", "enum": ["DAILY", "WEEKLY", "YEARLY"] },
+        "title": { "type": "string", "maxLength": 250 },
+        "monthAmharic": { "type": "string", "maxLength": 50 },
+        "targetDateAmharic": { "type": "string", "maxLength": 100 },
+        "squadName": { "type": "string", "maxLength": 150 },
+        "presenterName": { "type": "string", "maxLength": 150 },
+        "scriptureRef": { "type": "string", "maxLength": 150 },
+        "goal": { "type": "string", "maxLength": 1500 },
+        "resourcesNeeded": { "type": "array" },
+        "status": { "type": "string", "enum": ["DRAFT", "READY", "SCHEDULED"] },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdByName": { "type": "string", "maxLength": 150 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "departmentId", "division", "title", "monthAmharic", "targetDateAmharic", "goal", "resourcesNeeded", "status", "createdBy", "createdByName", "createdAt", "updatedAt"]
+    },
+    "ehudFollowUp": {
+      "title": "EhudFollowUpRecord",
+      "description": "Operational follow-up and attendance log for Ehud Merha Gibir programs",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "departmentId": { "type": "string", "maxLength": 64 },
+        "division": { "type": "string", "enum": ["children", "intermediates", "youth"] },
+        "planScope": { "type": "string", "enum": ["DAILY", "WEEKLY", "YEARLY"] },
+        "programSheetId": { "type": "string", "maxLength": 128 },
+        "programTitle": { "type": "string", "maxLength": 250 },
+        "programDateAmharic": { "type": "string", "maxLength": 100 },
+        "attendanceCount": { "type": "integer" },
+        "punctualityStatus": { "type": "string", "enum": ["ON_TIME", "SLIGHT_DELAY", "DELAYED"] },
+        "readinessScore": { "type": "integer" },
+        "followUpStatus": { "type": "string", "enum": ["OPEN", "IN_PROGRESS", "RESOLVED"] },
+        "observations": { "type": "string", "maxLength": 2000 },
+        "actionItems": { "type": "string", "maxLength": 1500 },
+        "recordedBy": { "type": "string", "maxLength": 128 },
+        "recordedByName": { "type": "string", "maxLength": 150 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "departmentId", "division", "programSheetId", "programTitle", "programDateAmharic", "attendanceCount", "punctualityStatus", "readinessScore", "followUpStatus", "observations", "actionItems", "recordedBy", "recordedByName", "createdAt", "updatedAt"]
+    },
+    "ehudProgramRating": {
+      "title": "EhudProgramRating",
+      "description": "Program evaluation rating and constructive feedback for Ehud Merha Gibir",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "departmentId": { "type": "string", "maxLength": 64 },
+        "division": { "type": "string", "enum": ["children", "intermediates", "youth"] },
+        "planScope": { "type": "string", "enum": ["DAILY", "WEEKLY", "YEARLY"] },
+        "programSheetId": { "type": "string", "maxLength": 128 },
+        "programTitle": { "type": "string", "maxLength": 250 },
+        "programDateAmharic": { "type": "string", "maxLength": 100 },
+        "overallRating": { "type": "number" },
+        "spiritualDepthRating": { "type": "number" },
+        "timeManagementRating": { "type": "number" },
+        "organizationRating": { "type": "number" },
+        "engagementRating": { "type": "number" },
+        "strengths": { "type": "string", "maxLength": 1000 },
+        "improvements": { "type": "string", "maxLength": 1000 },
+        "raterId": { "type": "string", "maxLength": 128 },
+        "raterName": { "type": "string", "maxLength": 150 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "departmentId", "division", "programSheetId", "programTitle", "programDateAmharic", "overallRating", "spiritualDepthRating", "timeManagementRating", "organizationRating", "engagementRating", "raterId", "raterName", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -718,6 +794,18 @@
     "/sunday_daily_sheets/{sheetId}": {
       "schema": "sundayDailySheet",
       "description": "Sunday daily order-of-service sheets, checklist states, and attendance evaluation reports"
+    },
+    "/ehud_program_plans/{planId}": {
+      "schema": "ehudProgramPlan",
+      "description": "Program planning proposals and preparation blueprints for Ehud Merha Gibir"
+    },
+    "/ehud_followups/{followupId}": {
+      "schema": "ehudFollowUp",
+      "description": "Operational follow-ups, attendance logs, and action-item tracking for Ehud Merha Gibir"
+    },
+    "/ehud_program_ratings/{ratingId}": {
+      "schema": "ehudProgramRating",
+      "description": "Member and organizer ratings and feedback for Ehud Merha Gibir Sunday programs"
     }
   }
 }

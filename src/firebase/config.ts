@@ -10,10 +10,21 @@ export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfi
 // Initialize Firestore
 export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
 
+export const PRIMARY_FIREBASE_ADMIN_EMAIL = 'goferconstruction@gmail.com';
+export const SUPER_ADMIN_EMAILS = [
+  PRIMARY_FIREBASE_ADMIN_EMAIL,
+  'finalizedyosef@gmail.com',
+  'yaredcotm@gmail.com',
+  'admin@teklesawiros.org',
+] as const;
+
 // Initialize Auth: keep default Google Sign-In free of restricted Drive scopes so all users can sign in
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
-googleProvider.setCustomParameters({ prompt: 'select_account' });
+googleProvider.setCustomParameters({
+  prompt: 'select_account',
+  login_hint: PRIMARY_FIREBASE_ADMIN_EMAIL,
+});
 
 // Dedicated Google Drive provider used only when explicitly connecting Google Drive
 export const googleDriveProvider = new GoogleAuthProvider();

@@ -1,5 +1,15 @@
 import React from 'react';
-import { Home, BookOpen, Search, Calendar, User, PlusCircle } from 'lucide-react';
+import {
+  Home,
+  BookOpen,
+  Search,
+  Calendar,
+  User,
+  PlusCircle,
+  ClipboardList,
+  Activity,
+  Star,
+} from 'lucide-react';
 import { BottomNavTab } from '../types';
 import { useArchive } from '../context/ArchiveContext';
 
@@ -12,11 +22,24 @@ interface NavigationProps {
   onOpenDepartmentsHub?: () => void;
 }
 
+const EHUD_TASKBAR_ITEMS: {
+  id: BottomNavTab;
+  titleAmharic: string;
+  shortLabel: string;
+  icon: React.FC<{ className?: string }>;
+}[] = [
+  { id: 'EHUD_PLANNING', titleAmharic: 'ዕቅድ (Planning)', shortLabel: 'ዕቅድ', icon: ClipboardList },
+  { id: 'EHUD_FOLLOWING', titleAmharic: 'ክትትል (Following)', shortLabel: 'ክትትል', icon: Activity },
+  { id: 'EHUD_RATING', titleAmharic: 'ደረጃ መስጠት (Rate Program)', shortLabel: 'ደረጃ', icon: Star },
+];
+
 export const BottomNav: React.FC<NavigationProps> = ({
   currentTab,
   onTabSelected,
-  onCreateWorkClick,
 }) => {
+  const { activeDepartment } = useArchive();
+  const isEhud = activeDepartment === 'ehud_merha_gibir';
+
   const tabs: { id: BottomNavTab; titleAmharic: string; icon: React.FC<{ className?: string }> }[] = [
     { id: 'HOME', titleAmharic: 'ዋና ገጽ', icon: Home },
     { id: 'ARCHIVE', titleAmharic: 'መዝገብ', icon: BookOpen },
@@ -30,6 +53,29 @@ export const BottomNav: React.FC<NavigationProps> = ({
       aria-label="የስርዓቱ ዋና አሰሳ"
       className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 dark:bg-[#111D30]/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 shadow-lg px-2 py-1"
     >
+      {isEhud && (
+        <div className="flex items-center justify-center gap-1.5 max-w-md mx-auto pb-1 mb-1 border-b border-slate-100 dark:border-slate-800">
+          {EHUD_TASKBAR_ITEMS.map((item) => {
+            const IconComponent = item.icon;
+            const isSelected = currentTab === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => onTabSelected(item.id)}
+                className={`flex-1 flex items-center justify-center gap-1 py-1 px-2 rounded-lg text-[10px] font-bold transition-colors ${
+                  isSelected
+                    ? 'bg-[#8B0000] text-white'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                <IconComponent className="w-3 h-3 shrink-0" />
+                <span className="truncate">{item.shortLabel}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       <div className="flex items-center justify-around max-w-md mx-auto">
         {tabs.map((tab) => {
           const IconComponent = tab.icon;
@@ -81,7 +127,7 @@ export const DesktopSidebar: React.FC<NavigationProps> = ({
   return (
     <aside
       aria-label="የኮምፒውተር አሰሳ ምናሌ"
-      className="hidden md:flex flex-col w-60 h-screen sticky top-0 bg-white dark:bg-[#111D30] border-r border-[#B88500]/25 dark:border-slate-800 p-3.5 shadow-sm justify-between z-20 shrink-0"
+      className="hidden md:flex flex-col w-60 h-screen sticky top-0 bg-white dark:bg-[#111D30] border-r border-[#B88500]/25 dark:border-slate-800 p-3.5 shadow-sm justify-between z-20 shrink-0 overflow-y-auto"
     >
       <div>
         {/* Organization / User Card at top */}
@@ -142,6 +188,35 @@ export const DesktopSidebar: React.FC<NavigationProps> = ({
             );
           })}
         </div>
+
+        {/* Dedicated Ehud Merha Gibir Left Taskbar Section */}
+        {isEhud && (
+          <div className="mt-4 pt-3 border-t border-slate-200/80 dark:border-slate-800">
+            <div className="text-[10px] font-bold text-[#8B0000] dark:text-[#FF8A80] uppercase tracking-wider px-1 mb-1.5 font-serif-ethiopic">
+              የእሁድ መርሐ ግብር Tools
+            </div>
+            <div className="space-y-1">
+              {EHUD_TASKBAR_ITEMS.map((item) => {
+                const IconComponent = item.icon;
+                const isSelected = currentTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => onTabSelected(item.id)}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer ${
+                      isSelected
+                        ? 'bg-[#8B0000] text-white font-bold shadow-sm'
+                        : 'text-slate-700 dark:text-slate-200 hover:bg-red-50/70 dark:hover:bg-red-950/30'
+                    }`}
+                  >
+                    <IconComponent className="w-4 h-4 shrink-0" />
+                    <span className="truncate">{item.titleAmharic}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Quick Add Work / Document Button */}
         <div className="mt-4">

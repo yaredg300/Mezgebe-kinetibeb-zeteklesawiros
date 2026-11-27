@@ -17,6 +17,9 @@ import { ReviewerQueueScreen } from './screens/ReviewerQueueScreen';
 import { SearchScreen } from './screens/SearchScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
 import { EhudMerhaGibirScreen } from './screens/EhudMerhaGibirScreen';
+import { EhudPlanningScreen } from './screens/EhudPlanningScreen';
+import { EhudFollowingScreen } from './screens/EhudFollowingScreen';
+import { EhudProgramRatingScreen } from './screens/EhudProgramRatingScreen';
 import { DepartmentGatewayScreen } from './screens/DepartmentGatewayScreen';
 import { DepartmentPortalScreen } from './screens/DepartmentPortalScreen';
 import { WaitingForApprovalScreen } from './screens/WaitingForApprovalScreen';
@@ -103,6 +106,17 @@ export const AppContent: React.FC = () => {
   const [showChurchInfo, setShowChurchInfo] = useState<boolean>(false);
   const [showDepartmentsModal, setShowDepartmentsModal] = useState<boolean>(false);
   const [isAudioModalOpen, setIsAudioModalOpen] = useState<boolean>(false);
+
+  React.useEffect(() => {
+    if (
+      activeDepartment !== 'ehud_merha_gibir' &&
+      (activeTab === 'EHUD_PLANNING' ||
+        activeTab === 'EHUD_FOLLOWING' ||
+        activeTab === 'EHUD_RATING')
+    ) {
+      setActiveTab('HOME');
+    }
+  }, [activeDepartment, activeTab]);
 
   const markOnboardedAndProceed = (nextFlow: AppFlow) => {
     try {
@@ -399,6 +413,12 @@ export const AppContent: React.FC = () => {
               )}
 
               {activeTab === 'EVENTS' && <EventsScreen />}
+
+              {activeTab === 'EHUD_PLANNING' && <EhudPlanningScreen />}
+
+              {activeTab === 'EHUD_FOLLOWING' && <EhudFollowingScreen />}
+
+              {activeTab === 'EHUD_RATING' && <EhudProgramRatingScreen />}
 
               {activeTab === 'PROFILE' && (
                 <ProfileScreen

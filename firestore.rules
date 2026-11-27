@@ -30,7 +30,7 @@ service cloud.firestore {
 
     function isSuperAdmin() {
       return isSignedIn() && (
-        (request.auth.token.email in ['finalizedyosef@gmail.com', 'goferconstruction@gmail.com', 'yaredcotm@gmail.com', 'admin@teklesawiros.org'] && request.auth.token.email_verified == true) ||
+        (request.auth.token.email in ['goferconstruction@gmail.com', 'finalizedyosef@gmail.com', 'yaredcotm@gmail.com', 'admin@teklesawiros.org'] && request.auth.token.email_verified == true) ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
@@ -620,6 +620,223 @@ service cloud.firestore {
 
       allow delete: if isValidId(sheetId) &&
                     (canAuthorizeMembers('ehud_merha_gibir') || isSuperAdmin());
+    }
+
+    // 13. Ehud Merha Gibir: Program Planning
+    function isValidEhudPlan(data) {
+      return data.keys().hasAll([
+               'id', 'departmentId', 'division', 'title', 'monthAmharic',
+               'targetDateAmharic', 'goal', 'resourcesNeeded', 'status',
+               'createdBy', 'createdByName', 'createdAt', 'updatedAt'
+             ]) &&
+             data.keys().hasOnly([
+               'id', 'departmentId', 'division', 'planScope', 'title', 'monthAmharic',
+               'targetDateAmharic', 'squadName', 'presenterName', 'scriptureRef',
+               'goal', 'resourcesNeeded', 'status', 'createdBy', 'createdByName',
+               'createdAt', 'updatedAt'
+             ]) &&
+             data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.departmentId == 'ehud_merha_gibir' &&
+             data.division in ['children', 'intermediates', 'youth'] &&
+             (!('planScope' in data) || data.planScope in ['DAILY', 'WEEKLY', 'YEARLY']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 250 &&
+             data.monthAmharic is string && data.monthAmharic.size() > 0 && data.monthAmharic.size() <= 50 &&
+             data.targetDateAmharic is string && data.targetDateAmharic.size() > 0 && data.targetDateAmharic.size() <= 100 &&
+             (!('squadName' in data) || (data.squadName is string && data.squadName.size() <= 150)) &&
+             (!('presenterName' in data) || (data.presenterName is string && data.presenterName.size() <= 150)) &&
+             (!('scriptureRef' in data) || (data.scriptureRef is string && data.scriptureRef.size() <= 150)) &&
+             data.goal is string && data.goal.size() <= 1500 &&
+             data.resourcesNeeded is list && data.resourcesNeeded.size() <= 30 &&
+             (data.resourcesNeeded.size() == 0 || data.resourcesNeeded[0] is string) &&
+             data.status in ['DRAFT', 'READY', 'SCHEDULED'] &&
+             data.createdBy is string && data.createdBy.size() > 0 && data.createdBy.size() <= 128 &&
+             data.createdByName is string && data.createdByName.size() > 0 && data.createdByName.size() <= 150 &&
+             data.createdAt is string && data.createdAt.size() <= 64 &&
+             data.updatedAt is string && data.updatedAt.size() <= 64;
+    }
+
+    match /ehud_program_plans/{planId} {
+      allow get: if isValidId(planId) && resource.data.departmentId == 'ehud_merha_gibir';
+      allow list: if resource.data.departmentId == 'ehud_merha_gibir';
+
+      allow create: if isSignedIn() &&
+                    isValidId(planId) &&
+                    isValidEhudPlan(incoming()) &&
+                    incoming().id == planId &&
+                    incoming().createdBy == request.auth.uid &&
+                    (isApprovedMember('ehud_merha_gibir') || canAuthorizeMembers('ehud_merha_gibir') || isSuperAdmin());
+
+      allow update: if isSignedIn() &&
+                    isValidId(planId) &&
+                    isValidEhudPlan(incoming()) &&
+                    incoming().id == existing().id &&
+                    incoming().departmentId == existing().departmentId &&
+                    incoming().createdBy == existing().createdBy &&
+                    incoming().createdAt == existing().createdAt && (
+                      isSuperAdmin() ||
+                      canAuthorizeMembers('ehud_merha_gibir') ||
+                      (
+                        isOwner(existing().createdBy) &&
+                        isApprovedMember('ehud_merha_gibir') &&
+                        incoming().diff(existing()).affectedKeys().hasOnly([
+                          'division', 'planScope', 'title', 'monthAmharic', 'targetDateAmharic',
+                          'squadName', 'presenterName', 'scriptureRef', 'goal',
+                          'resourcesNeeded', 'status', 'updatedAt'
+                        ])
+                      )
+                    );
+
+      allow delete: if isSignedIn() &&
+                    isValidId(planId) && (
+                      isOwner(existing().createdBy) ||
+                      canAuthorizeMembers('ehud_merha_gibir') ||
+                      isSuperAdmin()
+                    );
+    }
+
+    // 14. Ehud Merha Gibir: Program Following & Check-ins
+    function isValidEhudFollowUp(data) {
+      return data.keys().hasAll([
+               'id', 'departmentId', 'division', 'programSheetId', 'programTitle',
+               'programDateAmharic', 'attendanceCount', 'punctualityStatus',
+               'readinessScore', 'followUpStatus', 'observations', 'actionItems',
+               'recordedBy', 'recordedByName', 'createdAt', 'updatedAt'
+             ]) &&
+             data.keys().hasOnly([
+               'id', 'departmentId', 'division', 'planScope', 'programSheetId', 'programTitle',
+               'programDateAmharic', 'attendanceCount', 'punctualityStatus',
+               'readinessScore', 'followUpStatus', 'observations', 'actionItems',
+               'recordedBy', 'recordedByName', 'createdAt', 'updatedAt'
+             ]) &&
+             data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.departmentId == 'ehud_merha_gibir' &&
+             data.division in ['children', 'intermediates', 'youth'] &&
+             (!('planScope' in data) || data.planScope in ['DAILY', 'WEEKLY', 'YEARLY']) &&
+             data.programSheetId is string && data.programSheetId.size() > 0 && data.programSheetId.size() <= 128 &&
+             data.programTitle is string && data.programTitle.size() > 0 && data.programTitle.size() <= 250 &&
+             data.programDateAmharic is string && data.programDateAmharic.size() > 0 && data.programDateAmharic.size() <= 100 &&
+             data.attendanceCount is number && data.attendanceCount >= 0 && data.attendanceCount <= 10000 &&
+             data.punctualityStatus in ['ON_TIME', 'SLIGHT_DELAY', 'DELAYED'] &&
+             data.readinessScore is number && data.readinessScore >= 0 && data.readinessScore <= 100 &&
+             data.followUpStatus in ['OPEN', 'IN_PROGRESS', 'RESOLVED'] &&
+             data.observations is string && data.observations.size() <= 2000 &&
+             data.actionItems is string && data.actionItems.size() <= 1500 &&
+             data.recordedBy is string && data.recordedBy.size() > 0 && data.recordedBy.size() <= 128 &&
+             data.recordedByName is string && data.recordedByName.size() > 0 && data.recordedByName.size() <= 150 &&
+             data.createdAt is string && data.createdAt.size() <= 64 &&
+             data.updatedAt is string && data.updatedAt.size() <= 64;
+    }
+
+    match /ehud_followups/{followupId} {
+      allow get: if isValidId(followupId) && resource.data.departmentId == 'ehud_merha_gibir';
+      allow list: if resource.data.departmentId == 'ehud_merha_gibir';
+
+      allow create: if isSignedIn() &&
+                    isValidId(followupId) &&
+                    isValidEhudFollowUp(incoming()) &&
+                    incoming().id == followupId &&
+                    incoming().recordedBy == request.auth.uid &&
+                    (isApprovedMember('ehud_merha_gibir') || canAuthorizeMembers('ehud_merha_gibir') || isSuperAdmin());
+
+      allow update: if isSignedIn() &&
+                    isValidId(followupId) &&
+                    isValidEhudFollowUp(incoming()) &&
+                    incoming().id == existing().id &&
+                    incoming().departmentId == existing().departmentId &&
+                    incoming().recordedBy == existing().recordedBy &&
+                    incoming().createdAt == existing().createdAt && (
+                      isSuperAdmin() ||
+                      canAuthorizeMembers('ehud_merha_gibir') ||
+                      (
+                        isApprovedMember('ehud_merha_gibir') &&
+                        incoming().diff(existing()).affectedKeys().hasOnly([
+                          'planScope', 'attendanceCount', 'punctualityStatus', 'readinessScore',
+                          'followUpStatus', 'observations', 'actionItems', 'updatedAt'
+                        ])
+                      )
+                    );
+
+      allow delete: if isSignedIn() &&
+                    isValidId(followupId) && (
+                      isOwner(existing().recordedBy) ||
+                      canAuthorizeMembers('ehud_merha_gibir') ||
+                      isSuperAdmin()
+                    );
+    }
+
+    // 15. Ehud Merha Gibir: Program Ratings
+    function isValidRatingScore(val) {
+      return val is number && val >= 1 && val <= 5;
+    }
+
+    function isValidEhudRating(data) {
+      return data.keys().hasAll([
+               'id', 'departmentId', 'division', 'programSheetId', 'programTitle',
+               'programDateAmharic', 'overallRating', 'spiritualDepthRating',
+               'timeManagementRating', 'organizationRating', 'engagementRating',
+               'raterId', 'raterName', 'createdAt', 'updatedAt'
+             ]) &&
+             data.keys().hasOnly([
+               'id', 'departmentId', 'division', 'planScope', 'programSheetId', 'programTitle',
+               'programDateAmharic', 'overallRating', 'spiritualDepthRating',
+               'timeManagementRating', 'organizationRating', 'engagementRating',
+               'strengths', 'improvements', 'raterId', 'raterName', 'createdAt', 'updatedAt'
+             ]) &&
+             data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.departmentId == 'ehud_merha_gibir' &&
+             data.division in ['children', 'intermediates', 'youth'] &&
+             (!('planScope' in data) || data.planScope in ['DAILY', 'WEEKLY', 'YEARLY']) &&
+             data.programSheetId is string && data.programSheetId.size() > 0 && data.programSheetId.size() <= 128 &&
+             data.programTitle is string && data.programTitle.size() > 0 && data.programTitle.size() <= 250 &&
+             data.programDateAmharic is string && data.programDateAmharic.size() > 0 && data.programDateAmharic.size() <= 100 &&
+             isValidRatingScore(data.overallRating) &&
+             isValidRatingScore(data.spiritualDepthRating) &&
+             isValidRatingScore(data.timeManagementRating) &&
+             isValidRatingScore(data.organizationRating) &&
+             isValidRatingScore(data.engagementRating) &&
+             (!('strengths' in data) || (data.strengths is string && data.strengths.size() <= 1000)) &&
+             (!('improvements' in data) || (data.improvements is string && data.improvements.size() <= 1000)) &&
+             data.raterId is string && data.raterId.size() > 0 && data.raterId.size() <= 128 &&
+             data.raterName is string && data.raterName.size() > 0 && data.raterName.size() <= 150 &&
+             data.createdAt is string && data.createdAt.size() <= 64 &&
+             data.updatedAt is string && data.updatedAt.size() <= 64;
+    }
+
+    match /ehud_program_ratings/{ratingId} {
+      allow get: if isValidId(ratingId) && resource.data.departmentId == 'ehud_merha_gibir';
+      allow list: if resource.data.departmentId == 'ehud_merha_gibir';
+
+      allow create: if isSignedIn() &&
+                    isValidId(ratingId) &&
+                    isValidEhudRating(incoming()) &&
+                    incoming().id == ratingId &&
+                    incoming().raterId == request.auth.uid;
+
+      allow update: if isSignedIn() &&
+                    isValidId(ratingId) &&
+                    isValidEhudRating(incoming()) &&
+                    incoming().id == existing().id &&
+                    incoming().departmentId == existing().departmentId &&
+                    incoming().raterId == existing().raterId &&
+                    incoming().createdAt == existing().createdAt && (
+                      isSuperAdmin() ||
+                      canAuthorizeMembers('ehud_merha_gibir') ||
+                      (
+                        isOwner(existing().raterId) &&
+                        incoming().diff(existing()).affectedKeys().hasOnly([
+                          'planScope', 'overallRating', 'spiritualDepthRating', 'timeManagementRating',
+                          'organizationRating', 'engagementRating', 'strengths',
+                          'improvements', 'updatedAt'
+                        ])
+                      )
+                    );
+
+      allow delete: if isSignedIn() &&
+                    isValidId(ratingId) && (
+                      isOwner(existing().raterId) ||
+                      canAuthorizeMembers('ehud_merha_gibir') ||
+                      isSuperAdmin()
+                    );
     }
   }
 }

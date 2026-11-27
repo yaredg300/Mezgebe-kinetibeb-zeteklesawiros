@@ -22,6 +22,8 @@ import {
   Trash2,
   BarChart3,
   X,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { useArchive } from '../context/ArchiveContext';
 import {
@@ -40,10 +42,15 @@ import {
   CHILDREN_TEACHER_SQUADS_2019,
   MAEKELAWIYAN_TEACHER_SQUADS_2019,
   YOUTH_PLAN_PDF_PACKAGE,
+  YOUTH_MONTHLY_WEEKLY_HIGHLIGHTS_2019,
   YouthAnnualTarget,
   YouthOrganizerSquad,
 } from '../data/youthCombinedPlanData';
 import { downloadDailyPlanPdf, printDailyPlanSheet } from '../utils/pdfExport';
+import { sortDailySheetsByComingSoon } from '../utils/ehudPlanSync';
+import { ClockPopoverDialog, ClockTimePicker } from '../components/ClockTimePicker';
+import { SlotOverlapShower } from '../components/SlotOverlapShower';
+import { analyzeDailySlotTimes } from '../utils/timeOverlap';
 
 const ETHIOPIAN_MONTH_NAMES = [
   'መስከረም',
@@ -109,8 +116,9 @@ export const EhudMerhaGibirScreen: React.FC<{
   // Month filter for daily schedules
   const [dailyMonthFilter, setDailyMonthFilter] = useState<string>('all');
 
-  // Selected date for daily timetable
-  const [selectedDayId, setSelectedDayId] = useState<string>('yth_hidar_6');
+  // Selected date for daily timetable (empty defaults to Coming Soon sheet)
+  const [selectedDayId, setSelectedDayId] = useState<string>('');
+  const [showDailyExtras, setShowDailyExtras] = useState<boolean>(false);
 
   // Search query for organizer squads
   const [squadSearchQuery, setSquadSearchQuery] = useState<string>('');
@@ -127,6 +135,12 @@ export const EhudMerhaGibirScreen: React.FC<{
   const [editActualTime, setEditActualTime] = useState<string>('');
   const [editNotes, setEditNotes] = useState<string>('');
   const [saveToast, setSaveToast] = useState<string | null>(null);
+  const [activeClockSlot, setActiveClockSlot] = useState<{
+    sheet: SundayDailyPlanSheet;
+    slot: SundayTimetableSlot;
+  } | null>(null);
+  const [activeClockProgramSheet, setActiveClockProgramSheet] =
+    useState<SundayDailyPlanSheet | null>(null);
 
   // Create / Edit Daily Sheet Modal
   const [showSheetModal, setShowSheetModal] = useState<boolean>(false);
@@ -195,9 +209,11 @@ export const EhudMerhaGibirScreen: React.FC<{
     (entry) => entry.monthAmharic === selectedMonthFilter
   );
 
-  // Current division daily plan sheets
+  // Current division daily plan sheets (sorted with Coming Soon first)
   const divisionDailySheets = useMemo(() => {
-    return dailyPlanSheets.filter((sheet) => sheet.division === selectedDivision);
+    return sortDailySheetsByComingSoon(
+      dailyPlanSheets.filter((sheet) => sheet.division === selectedDivision)
+    );
   }, [dailyPlanSheets, selectedDivision]);
 
   // Dynamic months present in current division daily sheets
@@ -670,25 +686,37 @@ export const EhudMerhaGibirScreen: React.FC<{
             <div className="lg:col-span-8">
               {activeDailySheet ? (
                 <div className="rounded-xl bg-white dark:bg-[#111D30] border border-slate-200 dark:border-slate-800 overflow-hidden">
-                  {/* Daily Sheet Header */}
-                  <div className="p-4 border-b border-slate-200 dark:border-slate-800 space-y-2">
+                  {/* Compact Daily Sheet Header */}
+                  <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800">
                     <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2.5">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 flex-wrap">
+                          {activeDailySheet.id === divisionDailySheets[0]?.id && (
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-[#8B0000] text-white">
+                              ቀጣይ • Coming Soon
+                            </span>
+                          )}
                           <span className="font-bold text-[#8B0000] dark:text-[#FF8A80]">
                             {activeDailySheet.dateAmharic}
                           </span>
                           <span aria-hidden="true">·</span>
-                          <span className="font-mono tabular-nums">{activeDailySheet.timeAmharic}</span>
+                          {isAdminOrReviewer ? (
+                            <button
+                              type="button"
+                              onClick={() => setActiveClockProgramSheet(activeDailySheet)}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 hover:bg-red-50 dark:hover:bg-red-950/30 border border-slate-200 dark:border-slate-700 hover:border-[#8B0000] font-mono tabular-nums font-bold text-slate-700 dark:text-slate-200 cursor-pointer transition-colors"
+                              title="ሰዓቱን በሰዓት (Clock) ለመቀየር ይጫኑ"
+                            >
+                              <Clock className="w-3 h-3 text-[#8B0000] dark:text-[#FF8A80]" />
+                              <span>{activeDailySheet.timeAmharic}</span>
+                            </button>
+                          ) : (
+                            <span className="font-mono tabular-nums">{activeDailySheet.timeAmharic}</span>
+                          )}
                         </div>
-                        <h3 className="text-lg sm:text-xl font-bold font-serif-ethiopic text-slate-900 dark:text-white mt-0.5">
+                        <h3 className="text-base sm:text-lg font-bold font-serif-ethiopic text-slate-900 dark:text-white mt-0.5">
                           {activeDailySheet.mainTopic}
                         </h3>
-                        <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">
-                          መሪ፦ <strong className="text-[#8B0000] dark:text-[#FF8A80]">{activeDailySheet.leader}</strong>
-                          <span aria-hidden="true"> · </span>
-                          አቅራቢ / መምህር፦ <strong className="text-[#B88500] dark:text-[#FFD54F]">{activeDailySheet.presenterOrTeacher}</strong>
-                        </p>
                       </div>
 
                       {/* Export & Admin Controls */}
@@ -741,91 +769,192 @@ export const EhudMerhaGibirScreen: React.FC<{
                         )}
                       </div>
                     </div>
-
-                    {activeDailySheet.purpose && (
-                      <p className="text-xs text-slate-700 dark:text-slate-300 bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 rounded-lg px-3 py-2">
-                        <strong className="text-amber-900 dark:text-amber-200 font-serif-ethiopic">ዓላማ፦</strong>{' '}
-                        {activeDailySheet.purpose}
-                      </p>
-                    )}
                   </div>
 
-                  {/* High-Density Minute-by-Minute Timetable */}
-                  <div>
-                    <div className="px-4 py-2 bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
-                      <span className="font-bold text-slate-700 dark:text-slate-200 font-serif-ethiopic">
-                        የመርሐ ግብር ክፍለ-ጊዜዎች
-                      </span>
-                      <span className="font-mono tabular-nums text-[11px] text-slate-500">
-                        {activeDailySheet.slots.length} ክፍሎች
-                      </span>
-                    </div>
+                  {/* FIRST PRIORITY: High-Density Minute-by-Minute Timetable (Slots) */}
+                  {(() => {
+                    const dailySlotAnalysis = analyzeDailySlotTimes(
+                      activeDailySheet.slots,
+                      activeDailySheet.timeAmharic
+                    );
 
-                    <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {activeDailySheet.slots.map((slot, idx) => {
-                        const liveAsgn = scheduleAssignments.find(
-                          (a) =>
-                            a.departmentId === 'ehud_merha_gibir' &&
-                            a.scheduleProgramId === activeDailySheet.id &&
-                            a.agendaSlotId === slot.id
-                        );
+                    return (
+                      <div>
+                        <div className="px-4 py-2 bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
+                          <span className="font-bold text-slate-700 dark:text-slate-200 font-serif-ethiopic">
+                            የዕለት ሰዓት ክፍለ-ጊዜዎች (Slots)
+                          </span>
+                          <span className="font-mono tabular-nums text-[11px] font-bold text-[#8B0000] dark:text-[#FF8A80]">
+                            {activeDailySheet.slots.length} ክፍሎች
+                          </span>
+                        </div>
 
-                        return (
-                          <div
-                            key={slot.id}
-                            className="px-4 py-2.5 flex items-start sm:items-center justify-between gap-3 hover:bg-slate-50/60 dark:hover:bg-slate-800/40"
-                          >
-                            <div className="flex items-start sm:items-center gap-2.5 min-w-0">
-                              <span className="text-[11px] font-mono tabular-nums text-slate-400 w-4 shrink-0">
-                                {idx + 1}.
-                              </span>
-                              <div className="min-w-0">
-                                <p className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                                  {slot.slotTitle}
-                                </p>
-                                {(slot.inCharge || slot.notes || liveAsgn) && (
-                                  <p className="text-[11px] text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-x-2">
-                                    {slot.inCharge && <span>{slot.inCharge}</span>}
-                                    {liveAsgn && (
-                                      <span className="font-semibold text-emerald-700 dark:text-emerald-400">
-                                        · ተመድቧል፦ {liveAsgn.responsibleLeadName}
-                                      </span>
+                        {activeDailySheet.slots.length > 0 && (
+                          <SlotOverlapShower
+                            slots={activeDailySheet.slots}
+                            programTimeRange={activeDailySheet.timeAmharic}
+                            onSlotClick={
+                              isAdminOrReviewer
+                                ? (slot) => setActiveClockSlot({ sheet: activeDailySheet, slot })
+                                : undefined
+                            }
+                          />
+                        )}
+
+                        <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                          {activeDailySheet.slots.map((slot, idx) => {
+                            const liveAsgn = scheduleAssignments.find(
+                              (a) =>
+                                a.departmentId === 'ehud_merha_gibir' &&
+                                a.scheduleProgramId === activeDailySheet.id &&
+                                a.agendaSlotId === slot.id
+                            );
+                            const analyzedSlot = dailySlotAnalysis.bySlotId[slot.id];
+
+                            return (
+                              <div
+                                key={slot.id}
+                                className={`px-4 py-2 flex items-start sm:items-center justify-between gap-3 ${
+                                  analyzedSlot?.hasOverlap
+                                    ? 'bg-rose-50/40 dark:bg-rose-950/15 hover:bg-rose-50/70'
+                                    : 'hover:bg-slate-50/60 dark:hover:bg-slate-800/40'
+                                }`}
+                              >
+                                <div className="flex items-start sm:items-center gap-2.5 min-w-0">
+                                  <span className="text-[11px] font-mono tabular-nums text-slate-400 w-4 shrink-0">
+                                    {idx + 1}.
+                                  </span>
+                                  <div className="min-w-0">
+                                    <p className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                                      {slot.slotTitle}
+                                    </p>
+                                    {(slot.inCharge || slot.notes || liveAsgn || analyzedSlot?.hasOverlap) && (
+                                      <p className="text-[11px] text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-x-2">
+                                        {slot.inCharge && <span>{slot.inCharge}</span>}
+                                        {liveAsgn && (
+                                          <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+                                            · ተመድቧል፦ {liveAsgn.responsibleLeadName}
+                                          </span>
+                                        )}
+                                        {slot.notes && <span>· {slot.notes}</span>}
+                                        {analyzedSlot?.hasOverlap && (
+                                          <span className="font-bold text-rose-600 dark:text-rose-400">
+                                            · ተደራራቢ ({analyzedSlot.overlaps.map((o) => o.otherSlotTitle).join(', ')})
+                                          </span>
+                                        )}
+                                      </p>
                                     )}
-                                    {slot.notes && <span>· {slot.notes}</span>}
-                                  </p>
+                                  </div>
+                                </div>
+
+                                {isAdminOrReviewer ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setActiveClockSlot({ sheet: activeDailySheet, slot })}
+                                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] font-mono tabular-nums font-bold shrink-0 cursor-pointer transition-colors ${
+                                      analyzedSlot?.hasOverlap
+                                        ? 'bg-rose-100/80 dark:bg-rose-950/50 border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300'
+                                        : 'bg-slate-100 dark:bg-slate-800 hover:bg-red-50 dark:hover:bg-red-950/30 border-slate-200 dark:border-slate-700 hover:border-[#8B0000] text-slate-700 dark:text-slate-200'
+                                    }`}
+                                    title="ሰዓት በሰዓት (Clock Overlap Shower) ይምረጡ"
+                                  >
+                                    <Clock
+                                      className={`w-3 h-3 ${
+                                        analyzedSlot?.hasOverlap
+                                          ? 'text-rose-600 dark:text-rose-400'
+                                          : 'text-[#8B0000] dark:text-[#FF8A80]'
+                                      }`}
+                                    />
+                                    <span>{slot.timeRange}</span>
+                                  </button>
+                                ) : (
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-[11px] font-mono tabular-nums font-bold shrink-0 ${
+                                      analyzedSlot?.hasOverlap
+                                        ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300'
+                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200'
+                                    }`}
+                                  >
+                                    {slot.timeRange}
+                                  </span>
                                 )}
                               </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* COMPACTED INSIDE: Leader, Purpose, Checklist & Post-Program Evaluation */}
+                  {(() => {
+                    const checklistMap = activeDailySheet.preProgramChecklistState || {};
+                    const checkedCount = activeDailySheet.preProgramNeeds.filter(
+                      (need) => Boolean(checklistMap[need])
+                    ).length;
+                    const extrasOpen = showDailyExtras || isEditingStats;
+
+                    return (
+                      <div className="border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
+                        <button
+                          type="button"
+                          onClick={() => setShowDailyExtras((prev) => !prev)}
+                          className="w-full px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-left hover:bg-slate-100/70 dark:hover:bg-slate-800/40 cursor-pointer"
+                        >
+                          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                            <span className="font-bold text-slate-700 dark:text-slate-200">
+                              ተጨማሪ ዝርዝሮች
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 truncate max-w-[140px]">
+                              {activeDailySheet.leader}
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono text-emerald-700 dark:text-emerald-300">
+                              Checklist {checkedCount}/{activeDailySheet.preProgramNeeds.length}
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono text-slate-600 dark:text-slate-300">
+                              ተሳታፊ፦{' '}
+                              {activeDailySheet.postProgramStats?.participantsCount || '—'}
+                            </span>
+                          </div>
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-[#0C4A9E] dark:text-[#7FAFFF] shrink-0">
+                            <span>{extrasOpen ? 'አሳጥር' : 'ክፈት'}</span>
+                            {extrasOpen ? (
+                              <ChevronUp className="w-3.5 h-3.5" />
+                            ) : (
+                              <ChevronDown className="w-3.5 h-3.5" />
+                            )}
+                          </span>
+                        </button>
+
+                        {extrasOpen && (
+                          <div className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111D30]">
+                            <div className="px-4 py-2.5 border-b border-slate-200 dark:border-slate-800 space-y-1.5 text-xs">
+                              <p className="text-slate-600 dark:text-slate-300">
+                                መሪ፦ <strong className="text-[#8B0000] dark:text-[#FF8A80]">{activeDailySheet.leader}</strong>
+                                <span aria-hidden="true"> · </span>
+                                አቅራቢ / መምህር፦ <strong className="text-[#B88500] dark:text-[#FFD54F]">{activeDailySheet.presenterOrTeacher}</strong>
+                              </p>
+                              {activeDailySheet.purpose && (
+                                <p className="text-xs text-slate-700 dark:text-slate-300 bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 rounded-lg px-3 py-1.5">
+                                  <strong className="text-amber-900 dark:text-amber-200 font-serif-ethiopic">ዓላማ፦</strong>{' '}
+                                  {activeDailySheet.purpose}
+                                </p>
+                              )}
                             </div>
 
-                            <span className="text-[11px] font-mono tabular-nums font-bold text-slate-600 dark:text-slate-300 shrink-0">
-                              {slot.timeRange}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Side-by-Side Bottom Grid: Pre-Program Checklist (Left) + Post-Program Evaluation (Right) */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-200 dark:divide-slate-800 border-t border-slate-200 dark:border-slate-800">
-                    {/* Left Half: Interactive Pre-program Checklist */}
-                    {(() => {
-                      const checklistMap = activeDailySheet.preProgramChecklistState || {};
-                      const checkedCount = activeDailySheet.preProgramNeeds.filter(
-                        (need) => Boolean(checklistMap[need])
-                      ).length;
-
-                      return (
-                        <div className="p-4 space-y-2.5">
-                          <div className="flex items-center justify-between gap-2">
-                            <h4 className="text-xs font-bold text-slate-700 dark:text-slate-200 font-serif-ethiopic flex items-center gap-1.5">
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                              <span>ቅድመ-ዝግጅት ቁሳቁሶች</span>
-                            </h4>
-                            <span className="text-[11px] font-mono tabular-nums font-bold text-emerald-700 dark:text-emerald-400">
-                              {checkedCount} / {activeDailySheet.preProgramNeeds.length}
-                            </span>
-                          </div>
+                            {/* Side-by-Side Bottom Grid: Pre-Program Checklist (Left) + Post-Program Evaluation (Right) */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-200 dark:divide-slate-800">
+                              {/* Left Half: Interactive Pre-program Checklist */}
+                              <div className="p-4 space-y-2.5">
+                                <div className="flex items-center justify-between gap-2">
+                                  <h4 className="text-xs font-bold text-slate-700 dark:text-slate-200 font-serif-ethiopic flex items-center gap-1.5">
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                    <span>ቅድመ-ዝግጅት ቁሳቁሶች</span>
+                                  </h4>
+                                  <span className="text-[11px] font-mono tabular-nums font-bold text-emerald-700 dark:text-emerald-400">
+                                    {checkedCount} / {activeDailySheet.preProgramNeeds.length}
+                                  </span>
+                                </div>
                           <div className="space-y-1.5">
                             {activeDailySheet.preProgramNeeds.map((need, idx) => {
                               const isChecked = Boolean(checklistMap[need]);
@@ -853,8 +982,6 @@ export const EhudMerhaGibirScreen: React.FC<{
                             })}
                           </div>
                         </div>
-                      );
-                    })()}
 
                     {/* Right Half: Post-program Attendance & Evaluation */}
                     <div className="p-4 space-y-2.5 bg-slate-50/40 dark:bg-slate-900/20">
@@ -905,11 +1032,12 @@ export const EhudMerhaGibirScreen: React.FC<{
                               <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
                                 የሰዓት አፈጻጸም
                               </label>
-                              <input
-                                type="text"
+                              <ClockTimePicker
                                 value={editActualTime}
-                                onChange={(e) => setEditActualTime(e.target.value)}
-                                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-mono"
+                                onChange={setEditActualTime}
+                                defaultMode="INTERVAL"
+                                title="የሰዓት አፈጻጸም ይምረጡ"
+                                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-[#8B0000] text-xs font-mono tabular-nums text-slate-800 dark:text-slate-100 inline-flex items-center justify-between gap-1.5 cursor-pointer"
                               />
                             </div>
                           </div>
@@ -991,6 +1119,11 @@ export const EhudMerhaGibirScreen: React.FC<{
                     </div>
                   </div>
                 </div>
+              )}
+            </div>
+          );
+        })()}
+      </div>
               ) : (
                 <div className="p-8 text-center bg-white dark:bg-[#111D30] rounded-xl border border-slate-200 dark:border-slate-800 text-xs text-slate-500">
                   ለዚህ ቀን ዝርዝር የዕለት ዕቅድ አልተገኘም።
@@ -1007,44 +1140,7 @@ export const EhudMerhaGibirScreen: React.FC<{
           <div className="space-y-4">
             {selectedDivision === 'youth' ? (
               <div className="space-y-4">
-                {[
-                  {
-                    month: 'ኅዳር 2019 ዓ.ም.',
-                    motto: '«ተመየጢ» — የንስሐ፣ የጸሎትና የሐዋርያዊ ተልዕኮ ወር',
-                    sundays: [
-                      { day: 6, topic: 'ተመየጢ', scripture: 'መኃልይ 6:13', squad: 'ምድብ 01 (ፍቅር)' },
-                      { day: 13, topic: 'አእላፋት መላእክት', scripture: 'ዕብራውያን 1:14', squad: 'ምድብ 02 (ደስታ)' },
-                      { day: 20, topic: 'መልካም በግነት', scripture: 'ዮሐንስ 10:11-16', squad: 'ምድብ 03 (ሰላም)' },
-                      { day: 21, topic: 'አውደ ምሕረት — እመቤታችን ጽዮን ማርያም', scripture: 'መዝሙር 131', squad: 'ምድብ 04 (ትዕግሥት)' },
-                      { day: 27, topic: 'ላካቸው', scripture: 'ሉቃስ 10:1-12', squad: 'ምድብ 05 (ቸርነት)' },
-                      { day: 30, topic: 'የኅዳር ወር የጸሎትና የምልጃ መርሐ ግብር', scripture: 'ያዕቆብ 5:16', squad: 'ምድብ 06 (በጎነት)' },
-                    ],
-                  },
-                  {
-                    month: 'ታኅሣሥ 2019 ዓ.ም.',
-                    motto: '«ሕይወተ ወራዙት» — የወጣቶች ሕይወት ምክክር፣ ልደትና የጥምቀት ዝግጅት',
-                    sundays: [
-                      { day: 4, topic: 'ነገረ ቅዱሳን አበው ወአማታት — ቅድስት ሐና', scripture: 'ሉቃስ 1:46-55', squad: 'ምድብ 07 (እምነት)' },
-                      { day: 11, topic: '«ሕይወተ ወራዙት ፩» (ለየብቻ አዳራሽ)', scripture: 'መክብብ 12:1', squad: 'ምድብ 08 (የውሃት)' },
-                      { day: 18, topic: '«ሕይወተ ወራዙት ፩» ማጠቃለያ (በጋራ አዳራሽ)', scripture: '1 ቆሮ. 9:25', squad: 'ምድብ 09 (ራስን መግዛት)' },
-                      { day: 21, topic: 'አውደ ምሕረት — «ምክረ አበው»', scripture: 'ምሳሌ 1:8', squad: 'ምድብ 10 (ሃይማኖት)' },
-                      { day: 25, topic: 'ጥንተ ልደቱ ለክርስቶስ (ልዩ የገና ኪነጥበብ 30 ደቂቃ)', scripture: 'ዮሐንስ 1:14', squad: 'ምድብ 01 (ፍቅር)' },
-                      { day: 30, topic: 'የጥምቀት በዓል ገቢ ማሰባሰቢያና አውደ ርዕይ', scripture: 'ዮሐንስ 1:29', squad: 'ምድብ 02 (ደስታ)' },
-                    ],
-                  },
-                  {
-                    month: 'ጥር 2019 ዓ.ም.',
-                    motto: '«ሰ/ት/ቤት በወጣቶች እይታ» — አንድነት፣ ታቦተ ጽዮንና ሰማዕትነት',
-                    sundays: [
-                      { day: 2, topic: 'የአንድነት መ/ግ — «ሰ/ት/ቤት በወጣቶች እይታ» ውይይት', scripture: 'ኤፌሶን 4:3', squad: 'ምድብ 03 (ሰላም)' },
-                      { day: 9, topic: 'ዝክረ አበው — አቡነ እስትንፋሰ ክርስቶስ', scripture: 'ምሳሌ 10:7', squad: 'ምድብ 04 (ትዕግሥት)' },
-                      { day: 16, topic: 'ታቦተ ጽዮን በኢትዮጵያ', scripture: 'ክብረ ነገሥት', squad: 'ምድብ 05 (ቸርነት)' },
-                      { day: 21, topic: 'አውደ ምሕረት — ታቦተ ጽዮን', scripture: 'ማኅሌተ ጽጌ', squad: 'ምድብ 06 (በጎነት)' },
-                      { day: 23, topic: 'ሰማዕትነት አያምልጣችሁ — ቅዱስ ጊዮርጊስ', scripture: '2 ጢሞ. 4:7', squad: 'ምድብ 07 (እምነት)' },
-                      { day: 30, topic: 'የሩብ ዓመት ማጠቃለያ የጸሎትና የምስጋና መርሐ ግብር', scripture: 'ቆላስይስ 3:15', squad: 'ምድብ 08 (የውሃት)' },
-                    ],
-                  },
-                ].map((monthData, idx) => (
+                {YOUTH_MONTHLY_WEEKLY_HIGHLIGHTS_2019.map((monthData, idx) => (
                   <div
                     key={idx}
                     className="rounded-xl bg-white dark:bg-[#111D30] border border-slate-200 dark:border-slate-800 overflow-hidden"
@@ -1557,12 +1653,11 @@ export const EhudMerhaGibirScreen: React.FC<{
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
                     ሰዓት *
                   </label>
-                  <input
-                    type="text"
-                    required
+                  <ClockTimePicker
                     value={sheetForm.timeAmharic}
-                    onChange={(e) => setSheetForm({ ...sheetForm, timeAmharic: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800"
+                    onChange={(val) => setSheetForm({ ...sheetForm, timeAmharic: val })}
+                    defaultMode="INTERVAL"
+                    title="የመርሐ ግብሩን ሰዓት ይምረጡ"
                   />
                 </div>
               </div>
@@ -1636,19 +1731,32 @@ export const EhudMerhaGibirScreen: React.FC<{
                   </button>
                 </div>
 
+                {sheetForm.slots.length > 0 && (
+                  <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                    <SlotOverlapShower
+                      slots={sheetForm.slots}
+                      programTimeRange={sheetForm.timeAmharic}
+                      compact
+                    />
+                  </div>
+                )}
+
                 <div className="space-y-2">
                   {sheetForm.slots.map((slot, idx) => (
                     <div key={slot.id} className="grid grid-cols-12 gap-2 items-center">
-                      <input
-                        type="text"
+                      <ClockTimePicker
                         value={slot.timeRange}
-                        onChange={(e) => {
+                        onChange={(val) => {
                           const next = [...sheetForm.slots];
-                          next[idx] = { ...slot, timeRange: e.target.value };
+                          next[idx] = { ...slot, timeRange: val };
                           setSheetForm({ ...sheetForm, slots: next });
                         }}
-                        placeholder="ሰዓት"
-                        className="col-span-3 px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono"
+                        defaultMode="DURATION"
+                        title="የክፍለ-ጊዜ ሰዓት ይምረጡ"
+                        contextSlots={sheetForm.slots}
+                        currentSlotId={slot.id}
+                        programTimeRange={sheetForm.timeAmharic}
+                        className="col-span-3 px-2 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-[#8B0000] font-mono tabular-nums text-xs text-slate-800 dark:text-slate-100 inline-flex items-center justify-between gap-1 cursor-pointer"
                       />
                       <input
                         type="text"
@@ -1732,6 +1840,43 @@ export const EhudMerhaGibirScreen: React.FC<{
           onClose={() => setSelectedPdfPackage(null)}
         />
       )}
+
+      {/* Interactive Clock Popover for Daily Slots */}
+      <ClockPopoverDialog
+        isOpen={Boolean(activeClockSlot)}
+        initialValue={activeClockSlot?.slot.timeRange || '15 ደቂቃ'}
+        defaultMode="DURATION"
+        title={activeClockSlot ? `${activeClockSlot.slot.slotTitle} — ሰዓት ምረጥ` : 'ሰዓት ምረጥ'}
+        contextSlots={activeClockSlot?.sheet.slots}
+        currentSlotId={activeClockSlot?.slot.id}
+        programTimeRange={activeClockSlot?.sheet.timeAmharic}
+        onClose={() => setActiveClockSlot(null)}
+        onSelect={async (val) => {
+          if (!activeClockSlot) return;
+          const { sheet, slot } = activeClockSlot;
+          const nextSlots = sheet.slots.map((s) =>
+            s.id === slot.id ? { ...s, timeRange: val } : s
+          );
+          await updateDailyPlanSheet(sheet.id, { slots: nextSlots });
+          showToastMessage(`የ"${slot.slotTitle}" ሰዓት ወደ ${val} ተቀይሯል።`);
+          setActiveClockSlot(null);
+        }}
+      />
+
+      {/* Interactive Clock Popover for Daily Header Program Time */}
+      <ClockPopoverDialog
+        isOpen={Boolean(activeClockProgramSheet)}
+        initialValue={activeClockProgramSheet?.timeAmharic || '7:30–9:30'}
+        defaultMode="INTERVAL"
+        title="የመርሐ ግብሩን ሰዓት በሰዓት (Clock) ይምረጡ"
+        onClose={() => setActiveClockProgramSheet(null)}
+        onSelect={async (val) => {
+          if (!activeClockProgramSheet) return;
+          await updateDailyPlanSheet(activeClockProgramSheet.id, { timeAmharic: val });
+          showToastMessage(`የመርሐ ግብሩ ሰዓት ወደ ${val} ተቀይሯል።`);
+          setActiveClockProgramSheet(null);
+        }}
+      />
     </div>
   );
 };

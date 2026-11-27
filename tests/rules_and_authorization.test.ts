@@ -11,6 +11,10 @@
  */
 
 import { getCanonicalMembershipId, sanitizeFirestorePayload } from '../src/utils/migration';
+import {
+  analyzeDailySlotTimes,
+  checkCandidateIntervalOverlap,
+} from '../src/utils/timeOverlap';
 
 function assert(condition: boolean, message: string) {
   if (!condition) {
@@ -228,7 +232,142 @@ async function runTests() {
     console.error('❌ TEST 9 FAILED:', err.message);
   }
 
-  console.log(`\n--- Test Suite Summary: ${passedCount}/9 Tests Passed Successfully ---\n`);
+  // TEST 10: Ehud Merha Gibir Planning, Following & Program Rating Payload Constraints
+  try {
+    const allowedScopes = ['DAILY', 'WEEKLY', 'YEARLY'];
+    const planPayload = sanitizeFirestorePayload({
+      id: 'eplan_test_1',
+      departmentId: 'ehud_merha_gibir',
+      division: 'youth',
+      planScope: 'WEEKLY',
+      title: 'የኅዳር ወር መንፈሳዊ ጉባኤ',
+      monthAmharic: 'ኅዳር',
+      targetDateAmharic: 'ኅዳር 13 2019 ዓ.ም.',
+      squadName: undefined,
+      presenterName: 'ዲ/ን ሚካኤል',
+      scriptureRef: undefined,
+      goal: 'የወጣቶች መንፈሳዊ እድገት',
+      resourcesNeeded: ['ማይክሮፎን', 'መዝሙር ጥራዝ'],
+      status: 'READY',
+      createdBy: 'usr_ehud_1',
+      createdByName: 'አስተባባሪ',
+      createdAt: '2026-11-27T00:00:00.000Z',
+      updatedAt: '2026-11-27T00:00:00.000Z',
+    });
+
+    assert(!('squadName' in planPayload), 'Optional empty squadName must be stripped');
+    assert(!('scriptureRef' in planPayload), 'Optional empty scriptureRef must be stripped');
+    assert(planPayload.departmentId === 'ehud_merha_gibir', 'Plan must scope to ehud_merha_gibir');
+    assert(allowedScopes.includes(planPayload.planScope), 'Plan scope must be DAILY | WEEKLY | YEARLY');
+    assert(['DRAFT', 'READY', 'SCHEDULED'].includes(planPayload.status), 'Valid plan status');
+
+    const followUpPayload = sanitizeFirestorePayload({
+      id: 'efollow_test_1',
+      departmentId: 'ehud_merha_gibir',
+      division: 'youth',
+      planScope: 'DAILY',
+      programSheetId: 'yth_hidar_6',
+      programTitle: 'ኅዳር 6 መርሐ ግብር',
+      programDateAmharic: 'ኅዳር 6 2019 ዓ.ም.',
+      attendanceCount: 240,
+      punctualityStatus: 'ON_TIME',
+      readinessScore: 95,
+      followUpStatus: 'RESOLVED',
+      observations: 'በሰዓቱ ተጀምሯል',
+      actionItems: 'ቀጣይ ክትትል',
+      recordedBy: 'usr_ehud_1',
+      recordedByName: 'ተከታታይ',
+      createdAt: '2026-11-27T00:00:00.000Z',
+      updatedAt: '2026-11-27T00:00:00.000Z',
+    });
+
+    assert(allowedScopes.includes(followUpPayload.planScope), 'Follow-up scope must be DAILY | WEEKLY | YEARLY');
+    assert(
+      followUpPayload.readinessScore >= 0 && followUpPayload.readinessScore <= 100,
+      'Readiness score must be bounded 0..100'
+    );
+    assert(
+      ['ON_TIME', 'SLIGHT_DELAY', 'DELAYED'].includes(followUpPayload.punctualityStatus),
+      'Valid punctuality status'
+    );
+
+    const ratingPayload = sanitizeFirestorePayload({
+      id: 'erating_test_1',
+      departmentId: 'ehud_merha_gibir',
+      division: 'youth',
+      planScope: 'YEARLY',
+      programSheetId: 'yt_1_1_4',
+      programTitle: '1.1.4 — ሳምንታዊ የእሁድ መደበኛ መርሐ ግብር ማከናወን',
+      programDateAmharic: 'መስከረም – ጳጉሜን 2019 ዓ.ም.',
+      overallRating: 5,
+      spiritualDepthRating: 5,
+      timeManagementRating: 4,
+      organizationRating: 5,
+      engagementRating: 5,
+      strengths: 'ጥሩ ትምህርት',
+      improvements: undefined,
+      raterId: 'usr_ehud_1',
+      raterName: 'አባል',
+      createdAt: '2026-11-27T00:00:00.000Z',
+      updatedAt: '2026-11-27T00:00:00.000Z',
+    });
+
+    assert(allowedScopes.includes(ratingPayload.planScope), 'Rating scope must be DAILY | WEEKLY | YEARLY');
+    assert(!('improvements' in ratingPayload), 'Optional empty improvements must be stripped');
+    assert(
+      ratingPayload.overallRating >= 1 && ratingPayload.overallRating <= 5,
+      'Rating scores must be bounded 1..5'
+    );
+
+    console.log(
+      '✅ TEST 10 PASSED: Ehud Merha Gibir Planning, Following & Rating payloads adhere to Firestore rules'
+    );
+    passedCount++;
+  } catch (err: any) {
+    console.error('❌ TEST 10 FAILED:', err.message);
+  }
+
+  // TEST 11: Time Overlap Shower Analysis, Collision Zones & Gap Detection
+  try {
+    const cleanSlots = [
+      { id: 's1', timeRange: '6:00–6:15', slotTitle: 'ጸሎት', inCharge: 'መሪ' },
+      { id: 's2', timeRange: '6:15–6:45', slotTitle: 'ትምህርት', inCharge: 'መምህር' },
+      { id: 's3', timeRange: '7:00–7:30', slotTitle: 'መዝሙር', inCharge: 'መዘምራን' },
+    ];
+    const cleanAnalysis = analyzeDailySlotTimes(cleanSlots, '6:00–8:00');
+    assert(!cleanAnalysis.hasAnyOverlap, 'Touching boundary 6:15–6:15 must NOT trigger an overlap');
+    assert(cleanAnalysis.coveredUniqueMin === 75, 'Unique covered minutes should equal 75');
+    assert(cleanAnalysis.gapZones.length === 2, 'Should detect 6:45–7:00 and 7:30–8:00 open gaps');
+    assert(cleanAnalysis.gapZones[0].label === '6:45–7:00', 'First gap must be 6:45–7:00');
+
+    const overlappingSlots = [
+      { id: 'o1', timeRange: '6:00–6:30', slotTitle: 'ጸሎትና መዝሙር', inCharge: 'መሪ' },
+      { id: 'o2', timeRange: '6:20–6:50', slotTitle: 'ትምህርት', inCharge: 'መምህር' },
+    ];
+    const ovAnalysis = analyzeDailySlotTimes(overlappingSlots, '6:00–8:00');
+    assert(ovAnalysis.hasAnyOverlap, 'Overlapping slots must be flagged');
+    assert(ovAnalysis.totalOverlapMin === 10, 'Overlap between 6:00–6:30 and 6:20–6:50 is 10 minutes');
+    assert(ovAnalysis.overlapZones[0].label === '6:20–6:30', 'Exact overlap zone label must be 6:20–6:30');
+    assert(ovAnalysis.bySlotId['o1'].hasOverlap && ovAnalysis.bySlotId['o2'].hasOverlap, 'Both slots marked overlapping');
+
+    const candidateCheck = checkCandidateIntervalOverlap({
+      startMin: 6 * 60 + 25,
+      endMin: 6 * 60 + 40,
+      contextSlots: cleanSlots,
+      programTimeRange: '6:00–8:00',
+    });
+    assert(candidateCheck.hasOverlap, 'Candidate 6:25–6:40 overlaps 6:15–6:45');
+    assert(candidateCheck.conflicts[0].overlapMinutes === 15, 'Candidate conflict overlap should be 15 minutes');
+    assert(candidateCheck.recommendedInterval === '6:45–7:00', 'Should recommend exact fitting open gap 6:45–7:00');
+
+    console.log('✅ TEST 11 PASSED: Overlap Shower detects collisions, touching boundaries, and open clock gaps accurately');
+    passedCount++;
+  } catch (err: any) {
+    console.error('❌ TEST 11 FAILED:', err.message);
+  }
+
+  console.log(`\n--- Test Suite Summary: ${passedCount}/11 Tests Passed Successfully ---\n`);
+  if (passedCount !== 11) process.exit(1);
 }
 
 runTests().catch((err) => {
